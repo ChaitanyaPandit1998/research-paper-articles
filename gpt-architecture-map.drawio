@@ -1,0 +1,271 @@
+<mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1500" math="0" shadow="0">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+
+    <!-- TITLE -->
+    <mxCell id="2" value="GPT / Transformer Architecture — Where Each Enhancement Applies" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=18;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="150" y="20" width="1400" height="40" as="geometry" />
+    </mxCell>
+
+    <!-- ========== MAIN FLOW (center x=700-920, width=220) ========== -->
+
+    <!-- Input Tokens -->
+    <mxCell id="input" value="Input Tokens" style="rounded=1;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="700" y="80" width="220" height="44" as="geometry" />
+    </mxCell>
+
+    <!-- Token Embedding -->
+    <mxCell id="wte" value="Token Embedding  (wte)" style="rounded=1;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="700" y="160" width="220" height="44" as="geometry" />
+    </mxCell>
+
+    <!-- RMSNorm + Smear Gate -->
+    <mxCell id="smear" value="RMSNorm  +  Smear Gate" style="rounded=1;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="700" y="240" width="220" height="44" as="geometry" />
+    </mxCell>
+
+    <!-- N Layers background rectangle -->
+    <mxCell id="nlayers_bg" value="&lt;i&gt;× N Transformer Layers&lt;/i&gt;" style="text;html=1;align=left;verticalAlign=top;strokeColor=#aaaaaa;fillColor=#f9f9f9;dashed=1;dashPattern=8 4;fontSize=12;rounded=1;" vertex="1" parent="1">
+      <mxGeometry x="560" y="312" width="500" height="660" as="geometry" />
+    </mxCell>
+
+    <!-- λ × x + α × x₀ -->
+    <mxCell id="resid_scale" value="&lt;b&gt;λ × x  +  α × x₀&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;resid_lambda · x0_lambda applied before block&lt;/font&gt;" style="rounded=1;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="700" y="336" width="220" height="48" as="geometry" />
+    </mxCell>
+
+    <!-- Pre-norm 1 -->
+    <mxCell id="prenorm1" value="RMSNorm  (pre-norm)" style="rounded=1;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="700" y="408" width="220" height="34" as="geometry" />
+    </mxCell>
+
+    <!-- Attention background -->
+    <mxCell id="attn_bg" value="&lt;i&gt;Attention&lt;/i&gt;" style="text;html=1;align=left;verticalAlign=top;strokeColor=#6c8ebf;fillColor=#EBF3FB;fontSize=11;rounded=1;" vertex="1" parent="1">
+      <mxGeometry x="570" y="455" width="480" height="252" as="geometry" />
+    </mxCell>
+
+    <!-- Q / K / V projections -->
+    <mxCell id="qkv" value="Q proj  (n_head)  |  K proj  (n_kv_head)  |  V proj  (n_kv_head)&lt;br/&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;GQA: fewer K,V heads share across Q heads&lt;/font&gt;" style="rounded=1;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="580" y="470" width="460" height="40" as="geometry" />
+    </mxCell>
+
+    <!-- Value Embedding injection -->
+    <mxCell id="ve_inject" value="V  =  V  +  gate × raw_embedding&lt;br/&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Value Embeddings — alternating layers only&lt;/font&gt;" style="rounded=1;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="580" y="518" width="460" height="36" as="geometry" />
+    </mxCell>
+
+    <!-- RoPE + QK Norm -->
+    <mxCell id="rope_qknorm" value="RoPE  (rotate Q, K by position)   →   QK Norm  (RMSNorm on Q, K)" style="rounded=1;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="580" y="562" width="460" height="34" as="geometry" />
+    </mxCell>
+
+    <!-- Flash Attention 3 -->
+    <mxCell id="flash_attn" value="Flash Attention 3   (causal  +  sliding window per layer)" style="rounded=1;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="580" y="604" width="460" height="34" as="geometry" />
+    </mxCell>
+
+    <!-- Output Projection -->
+    <mxCell id="out_proj" value="Output Projection  (W_o,  bias=False)" style="rounded=1;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="580" y="646" width="460" height="34" as="geometry" />
+    </mxCell>
+
+    <!-- Residual Add 1 -->
+    <mxCell id="resadd1" value="Residual  +" style="rounded=1;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="700" y="722" width="220" height="34" as="geometry" />
+    </mxCell>
+
+    <!-- Pre-norm 2 -->
+    <mxCell id="prenorm2" value="RMSNorm  (pre-norm)" style="rounded=1;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="700" y="770" width="220" height="34" as="geometry" />
+    </mxCell>
+
+    <!-- MLP background -->
+    <mxCell id="mlp_bg" value="&lt;i&gt;MLP&lt;/i&gt;" style="text;html=1;align=left;verticalAlign=top;strokeColor=#82b366;fillColor=#f0f7ee;fontSize=11;rounded=1;" vertex="1" parent="1">
+      <mxGeometry x="570" y="816" width="480" height="118" as="geometry" />
+    </mxCell>
+
+    <!-- Linear Expand -->
+    <mxCell id="lin_expand" value="Linear  expand  (d  →  4d,  bias=False)" style="rounded=1;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="580" y="830" width="460" height="30" as="geometry" />
+    </mxCell>
+
+    <!-- ReLU² -->
+    <mxCell id="relu2" value="ReLU²   activation   ( F.relu(x).square() )" style="rounded=1;html=1;fillColor=#82b366;strokeColor=#6d9b3a;fontColor=#ffffff;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="580" y="868" width="460" height="30" as="geometry" />
+    </mxCell>
+
+    <!-- Linear Shrink -->
+    <mxCell id="lin_shrink" value="Linear  shrink  (4d  →  d,  bias=False)" style="rounded=1;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="580" y="906" width="460" height="30" as="geometry" />
+    </mxCell>
+
+    <!-- Residual Add 2 -->
+    <mxCell id="resadd2" value="Residual  +" style="rounded=1;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="700" y="948" width="220" height="34" as="geometry" />
+    </mxCell>
+
+    <!-- Backout Subtraction -->
+    <mxCell id="backout" value="&lt;b&gt;Backout:  x  =  x  −  β × x_mid&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;subtract mid-layer residual (at layer N÷2)&lt;/font&gt;" style="rounded=1;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="700" y="1000" width="220" height="48" as="geometry" />
+    </mxCell>
+
+    <!-- Final RMSNorm -->
+    <mxCell id="final_norm" value="Final RMSNorm" style="rounded=1;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="700" y="1074" width="220" height="34" as="geometry" />
+    </mxCell>
+
+    <!-- LM Head -->
+    <mxCell id="lm_head" value="LM Head  (linear → vocab size,  untied from wte)" style="rounded=1;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="700" y="1130" width="220" height="44" as="geometry" />
+    </mxCell>
+
+    <!-- Logit Softcapping -->
+    <mxCell id="softcap" value="&lt;b&gt;Logit Softcapping&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;15 × tanh(logits / 15)&lt;/font&gt;" style="rounded=1;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="700" y="1202" width="220" height="48" as="geometry" />
+    </mxCell>
+
+    <!-- Output Logits -->
+    <mxCell id="output" value="Output Logits  (next token probabilities)" style="rounded=1;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="700" y="1278" width="220" height="44" as="geometry" />
+    </mxCell>
+
+    <!-- ========== MAIN FLOW ARROWS ========== -->
+    <mxCell id="f1" edge="1" source="input" target="wte" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f2" edge="1" source="wte" target="smear" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f3" edge="1" source="smear" target="resid_scale" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f4" edge="1" source="resid_scale" target="prenorm1" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f5" edge="1" source="prenorm1" target="qkv" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f6" edge="1" source="qkv" target="ve_inject" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f7" edge="1" source="ve_inject" target="rope_qknorm" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f8" edge="1" source="rope_qknorm" target="flash_attn" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f9" edge="1" source="flash_attn" target="out_proj" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f10" edge="1" source="out_proj" target="resadd1" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f11" edge="1" source="resadd1" target="prenorm2" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f12" edge="1" source="prenorm2" target="lin_expand" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f13" edge="1" source="lin_expand" target="relu2" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f14" edge="1" source="relu2" target="lin_shrink" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f15" edge="1" source="lin_shrink" target="resadd2" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f16" edge="1" source="resadd2" target="backout" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f17" edge="1" source="backout" target="final_norm" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f18" edge="1" source="final_norm" target="lm_head" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f19" edge="1" source="lm_head" target="softcap" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="f20" edge="1" source="softcap" target="output" style="edgeStyle=orthogonalEdgeStyle;html=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- ========== LEFT ANNOTATIONS (x=50, width=300) ========== -->
+
+    <!-- AdamW Optimizer -->
+    <mxCell id="ann_adamw" value="&lt;b&gt;AdamW Optimizer&lt;/b&gt;&lt;br/&gt;Used for: wte, lm_head, value_embeds, resid_lambdas, x0_lambdas, smear_gate, backout_lambda. Adaptive lr per param — needed for sparse + scalar params. lr scaled ∝ 1/√d_model." style="rounded=1;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=left;" vertex="1" parent="1">
+      <mxGeometry x="50" y="140" width="300" height="88" as="geometry" />
+    </mxCell>
+    <mxCell id="ae1" edge="1" source="ann_adamw" target="wte" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#b85450;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="ae2" edge="1" source="ann_adamw" target="lm_head" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#b85450;exitX=0.5;exitY=1;exitFixed=1;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- Smear Gate -->
+    <mxCell id="ann_smear" value="&lt;b&gt;Smear Gate&lt;/b&gt;&lt;br/&gt;Blends prev token embedding into current token before any layer runs. Cheap bigram signal in O(n). Gate = sigmoid output scaled by learned smear_lambda." style="rounded=1;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=left;" vertex="1" parent="1">
+      <mxGeometry x="50" y="236" width="300" height="78" as="geometry" />
+    </mxCell>
+    <mxCell id="se1" edge="1" source="ann_smear" target="smear" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#d6b656;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- resid_lambdas + x0_lambdas -->
+    <mxCell id="ann_resid" value="&lt;b&gt;resid_lambdas  +  x0_lambdas&lt;/b&gt;&lt;br/&gt;λ scales how much old stream survives before update. α blends original token embedding back in. Both decay with depth: λ starts ~1.15, α starts ~0.20." style="rounded=1;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=left;" vertex="1" parent="1">
+      <mxGeometry x="50" y="330" width="300" height="88" as="geometry" />
+    </mxCell>
+    <mxCell id="re1" edge="1" source="ann_resid" target="resid_scale" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#9673a6;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- GQA -->
+    <mxCell id="ann_gqa" value="&lt;b&gt;GQA (Grouped Query Attention)&lt;/b&gt;&lt;br/&gt;Q has more heads than K,V. Multiple Q heads share one K,V head. Reduces KV cache size at inference — critical for long contexts." style="rounded=1;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=left;" vertex="1" parent="1">
+      <mxGeometry x="50" y="460" width="300" height="78" as="geometry" />
+    </mxCell>
+    <mxCell id="ge1" edge="1" source="ann_gqa" target="qkv" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#6c8ebf;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- Value Embeddings -->
+    <mxCell id="ann_ve" value="&lt;b&gt;Value Embeddings  (ResFormer-style)&lt;/b&gt;&lt;br/&gt;Raw token embedding injected into V so deep layers broadcast a clear identity signal when attended to. Alternating layers. Gate range (0, 3)." style="rounded=1;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=left;" vertex="1" parent="1">
+      <mxGeometry x="50" y="550" width="300" height="78" as="geometry" />
+    </mxCell>
+    <mxCell id="vee1" edge="1" source="ann_ve" target="ve_inject" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#9673a6;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- Muon Optimizer -->
+    <mxCell id="ann_muon" value="&lt;b&gt;Muon Optimizer&lt;/b&gt;&lt;br/&gt;Applied to all attention + MLP weight matrices. Orthogonalises gradient updates via Newton-Schulz (5 iters) — each neuron moves in a unique direction, no redundant updates. 20–30% faster than AdamW alone." style="rounded=1;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=left;" vertex="1" parent="1">
+      <mxGeometry x="50" y="646" width="300" height="98" as="geometry" />
+    </mxCell>
+    <mxCell id="me1" edge="1" source="ann_muon" target="flash_attn" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#b85450;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="me2" edge="1" source="ann_muon" target="relu2" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#b85450;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- backout_lambda -->
+    <mxCell id="ann_backout" value="&lt;b&gt;backout_lambda&lt;/b&gt;&lt;br/&gt;Subtracts cached mid-layer residual from final residual. Strips low-level features (syntax, position) so LM head sees high-level reasoning. β init = 0.2." style="rounded=1;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=left;" vertex="1" parent="1">
+      <mxGeometry x="50" y="998" width="300" height="78" as="geometry" />
+    </mxCell>
+    <mxCell id="be1" edge="1" source="ann_backout" target="backout" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#9673a6;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- ========== RIGHT ANNOTATIONS (x=1070, width=300) ========== -->
+
+    <!-- Precision Management -->
+    <mxCell id="ann_prec" value="&lt;b&gt;Precision Management&lt;/b&gt;&lt;br/&gt;Weights stored in fp32. Activations cast to bf16 for fast tensor core matmuls (H100 = 2× throughput). Custom Linear class casts weights to input dtype — no autocast overhead." style="rounded=1;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;align=left;" vertex="1" parent="1">
+      <mxGeometry x="1070" y="310" width="300" height="88" as="geometry" />
+    </mxCell>
+    <mxCell id="pe1" edge="1" source="ann_prec" target="wte" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#666666;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="pe2" edge="1" source="ann_prec" target="qkv" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#666666;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- QK Norm -->
+    <mxCell id="ann_qknorm" value="&lt;b&gt;QK Norm&lt;/b&gt;&lt;br/&gt;RMSNorm on Q and K after RoPE. Prevents dot products from growing unboundedly → avoids attention entropy collapse. Scale ×1.2 applied after norm for sharper attention." style="rounded=1;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;align=left;" vertex="1" parent="1">
+      <mxGeometry x="1070" y="420" width="300" height="88" as="geometry" />
+    </mxCell>
+    <mxCell id="qe1" edge="1" source="ann_qknorm" target="rope_qknorm" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#d79b00;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- RoPE -->
+    <mxCell id="ann_rope" value="&lt;b&gt;RoPE (Rotary Position Embedding)&lt;/b&gt;&lt;br/&gt;Rotates Q,K by position-dependent angles. Relative distance falls out naturally in the dot product. No separate position embedding. base = 100,000 (extended context)." style="rounded=1;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;align=left;" vertex="1" parent="1">
+      <mxGeometry x="1070" y="518" width="300" height="88" as="geometry" />
+    </mxCell>
+    <mxCell id="rope_e" edge="1" source="ann_rope" target="rope_qknorm" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#d79b00;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- Flash Attention 3 + Sliding Window -->
+    <mxCell id="ann_flash" value="&lt;b&gt;Flash Attention 3  +  Sliding Window&lt;/b&gt;&lt;br/&gt;FA3 tiles Q·Kᵀ in SRAM — no full n×n matrix written to HBM. SSSL pattern: most layers use local window (n/4), final layer uses full context. KV cache for inference." style="rounded=1;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=left;" vertex="1" parent="1">
+      <mxGeometry x="1070" y="616" width="300" height="98" as="geometry" />
+    </mxCell>
+    <mxCell id="fe1" edge="1" source="ann_flash" target="flash_attn" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#6c8ebf;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- Lean Design -->
+    <mxCell id="ann_lean" value="&lt;b&gt;Lean Design&lt;/b&gt;&lt;br/&gt;All Linear layers: bias=False. RMSNorm: no learnable γ (F.rms_norm only). wte and lm_head are untied separate matrices. Removes redundant params, forces weights to carry all expressive power." style="rounded=1;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;align=left;" vertex="1" parent="1">
+      <mxGeometry x="1070" y="756" width="300" height="88" as="geometry" />
+    </mxCell>
+    <mxCell id="le1" edge="1" source="ann_lean" target="lin_expand" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#666666;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="le2" edge="1" source="ann_lean" target="prenorm1" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#666666;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- ReLU² Activation -->
+    <mxCell id="ann_relu2" value="&lt;b&gt;ReLU² Activation&lt;/b&gt;&lt;br/&gt;relu(x)² — kills negatives (like ReLU), squares positives (amplifies strong signals). Higher sparsity than ReLU. Gradient ∝ 2x for active neurons. Cheaper than GELU/SiLU (no exp)." style="rounded=1;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=left;" vertex="1" parent="1">
+      <mxGeometry x="1070" y="854" width="300" height="88" as="geometry" />
+    </mxCell>
+    <mxCell id="r2e" edge="1" source="ann_relu2" target="relu2" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#82b366;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- Logit Softcapping -->
+    <mxCell id="ann_softcap" value="&lt;b&gt;Logit Softcapping&lt;/b&gt;&lt;br/&gt;15 × tanh(logits/15) — no logit can exceed ±15. Prevents overconfident softmax spikes. Smooth (not hard-clip) so gradients always flow. Converts to fp32 first." style="rounded=1;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=left;" vertex="1" parent="1">
+      <mxGeometry x="1070" y="1196" width="300" height="88" as="geometry" />
+    </mxCell>
+    <mxCell id="sce" edge="1" source="ann_softcap" target="softcap" style="dashed=1;endArrow=open;endFill=0;html=1;strokeColor=#b85450;" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <!-- ========== LEGEND ========== -->
+    <mxCell id="leg_title" value="Legend" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="1070" y="1060" width="80" height="24" as="geometry" />
+    </mxCell>
+    <mxCell id="leg1" value="Attention enhancement" style="rounded=1;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="1070" y="1090" width="180" height="26" as="geometry" />
+    </mxCell>
+    <mxCell id="leg2" value="MLP enhancement" style="rounded=1;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="1262" y="1090" width="150" height="26" as="geometry" />
+    </mxCell>
+    <mxCell id="leg3" value="Residual / stream" style="rounded=1;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="1070" y="1122" width="180" height="26" as="geometry" />
+    </mxCell>
+    <mxCell id="leg4" value="Optimizer (training)" style="rounded=1;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="1262" y="1122" width="150" height="26" as="geometry" />
+    </mxCell>
+    <mxCell id="leg5" value="Embedding / output" style="rounded=1;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="1070" y="1154" width="180" height="26" as="geometry" />
+    </mxCell>
+    <mxCell id="leg6" value="Structural / lean" style="rounded=1;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="1262" y="1154" width="150" height="26" as="geometry" />
+    </mxCell>
+
+  </root>
+</mxGraphModel>

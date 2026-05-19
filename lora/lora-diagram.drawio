@@ -1,0 +1,156 @@
+<mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="960" math="0" shadow="0">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+
+    <!-- Title -->
+    <mxCell id="title" value="&lt;font style='font-size: 20px'&gt;&lt;b&gt;How LoRA Fine-tunes a Large Language Model&lt;/b&gt;&lt;/font&gt;"
+      style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;"
+      vertex="1" parent="1">
+      <mxGeometry x="300" y="20" width="800" height="50" as="geometry" />
+    </mxCell>
+
+    <!-- Input -->
+    <mxCell id="input" value="&lt;b&gt;Your Input&lt;/b&gt;&lt;br&gt;(text, tokens, data)"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=13;"
+      vertex="1" parent="1">
+      <mxGeometry x="570" y="90" width="220" height="65" as="geometry" />
+    </mxCell>
+
+    <!-- ═══════════════════════════════ PATH 1: FROZEN ═══════════════════════════════ -->
+
+    <mxCell id="frozen_bg" value="&lt;b&gt;PATH 1 — Original Model Weights&lt;/b&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4a6fa5;strokeWidth=2;fontSize=12;verticalAlign=top;"
+      vertex="1" parent="1">
+      <mxGeometry x="55" y="210" width="390" height="210" as="geometry" />
+    </mxCell>
+
+    <mxCell id="w0" value="&lt;b&gt;The Big Weight Matrix (W₀)&lt;/b&gt;&lt;br&gt;&lt;br&gt;Stores everything the model already knows.&lt;br&gt;For GPT-3: ~175 &lt;b&gt;billion&lt;/b&gt; numbers.&lt;br&gt;&lt;br&gt;&#x1F512; &lt;b&gt;LOCKED — never updated during training&lt;/b&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4a6fa5;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="90" y="255" width="320" height="130" as="geometry" />
+    </mxCell>
+
+    <!-- Why freeze callout -->
+    <mxCell id="why_freeze" value="&lt;b&gt;Why lock it?&lt;/b&gt;&lt;br&gt;Updating 175B numbers needs enormous&lt;br&gt;GPU memory and weeks of compute.&lt;br&gt;Locking it saves &gt;99% of the cost."
+      style="shape=callout;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#4caf50;strokeWidth=2;fontSize=10;perimeter=calloutPerimeter;size=15;position=0.5;direction=east;"
+      vertex="1" parent="1">
+      <mxGeometry x="20" y="460" width="220" height="105" as="geometry" />
+    </mxCell>
+
+    <!-- ═══════════════════════════════ PATH 2: LORA ═══════════════════════════════ -->
+
+    <mxCell id="lora_bg" value="&lt;b&gt;PATH 2 — LoRA Adapter (The Only Part That Gets Trained)&lt;/b&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4e6;strokeColor=#e8872a;strokeWidth=2;fontSize=12;verticalAlign=top;"
+      vertex="1" parent="1">
+      <mxGeometry x="650" y="185" width="540" height="340" as="geometry" />
+    </mxCell>
+
+    <!-- Matrix A -->
+    <mxCell id="matA" value="&lt;b&gt;Step 1 — Compress (Matrix A)&lt;/b&gt;&lt;br&gt;&lt;br&gt;Takes the full-size input and squeezes it&lt;br&gt;down to a tiny bottleneck (rank r, e.g. r = 4).&lt;br&gt;&lt;br&gt;&lt;i&gt;Initialised with small random numbers&lt;/i&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#e8872a;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="680" y="230" width="480" height="110" as="geometry" />
+    </mxCell>
+
+    <!-- Matrix B -->
+    <mxCell id="matB" value="&lt;b&gt;Step 2 — Expand (Matrix B)&lt;/b&gt;&lt;br&gt;&lt;br&gt;Takes the tiny bottleneck signal and expands&lt;br&gt;it back to full size — the learned &lt;i&gt;correction&lt;/i&gt;.&lt;br&gt;&lt;br&gt;&lt;i&gt;Initialised at zero → model starts from its original behaviour&lt;/i&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#e8872a;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="680" y="375" width="480" height="115" as="geometry" />
+    </mxCell>
+
+    <!-- Rank r callout -->
+    <mxCell id="rank_note" value="&lt;b&gt;What is rank r?&lt;/b&gt;&lt;br&gt;It controls how tiny the bottleneck is.&lt;br&gt;r = 4 → squeeze to just 4 numbers.&lt;br&gt;Lower r = fewer parameters to train.&lt;br&gt;Works well even at r = 1 or 2!"
+      style="shape=callout;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=10;perimeter=calloutPerimeter;size=15;position=0.5;direction=west;"
+      vertex="1" parent="1">
+      <mxGeometry x="1210" y="240" width="190" height="130" as="geometry" />
+    </mxCell>
+
+    <!-- Params saved callout -->
+    <mxCell id="params_note" value="&lt;b&gt;Result: 10,000x fewer params!&lt;/b&gt;&lt;br&gt;GPT-3 full fine-tune: 175B params&lt;br&gt;LoRA (r=4): only ~4.7M params&lt;br&gt;Uses 3x less GPU memory."
+      style="shape=callout;whiteSpace=wrap;html=1;fillColor=#fce4ec;strokeColor=#d53f8c;strokeWidth=2;fontSize=10;perimeter=calloutPerimeter;size=15;position=0.5;direction=west;"
+      vertex="1" parent="1">
+      <mxGeometry x="1210" y="400" width="190" height="110" as="geometry" />
+    </mxCell>
+
+    <!-- ═══════════════════════════════ ADD ═══════════════════════════════ -->
+
+    <mxCell id="add" value="&lt;b&gt;ADD&lt;/b&gt;&lt;br&gt;&#x2295;"
+      style="ellipse;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=14;fontStyle=1;"
+      vertex="1" parent="1">
+      <mxGeometry x="630" y="560" width="80" height="80" as="geometry" />
+    </mxCell>
+
+    <mxCell id="add_label" value="Combine: original result + small learned correction"
+      style="text;html=1;align=left;fontSize=11;fontStyle=2;strokeColor=none;fillColor=none;"
+      vertex="1" parent="1">
+      <mxGeometry x="730" y="588" width="340" height="30" as="geometry" />
+    </mxCell>
+
+    <!-- ═══════════════════════════════ OUTPUT ═══════════════════════════════ -->
+
+    <mxCell id="output" value="&lt;b&gt;Output&lt;/b&gt;&lt;br&gt;= (what the original model knew) + (small task-specific correction)&lt;br&gt;The model now behaves as if it was fully fine-tuned on your task!"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f9d0e8;strokeColor=#d53f8c;strokeWidth=2;fontSize=12;"
+      vertex="1" parent="1">
+      <mxGeometry x="390" y="680" width="560" height="80" as="geometry" />
+    </mxCell>
+
+    <!-- ═══════════════════════════════ DEPLOYMENT ═══════════════════════════════ -->
+
+    <mxCell id="deploy" value="&lt;b&gt;&#x1F680; At Deployment — Bake the Adapter In&lt;/b&gt;&lt;br&gt;Merge: new_weights = W₀ + (B × A)&lt;br&gt;The result is a single normal matrix — &lt;b&gt;zero extra cost at inference, same speed as before.&lt;/b&gt;&lt;br&gt;And you only need to store A &amp; B per task (a few MB instead of tens of GB)."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#805ad5;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="290" y="810" width="760" height="100" as="geometry" />
+    </mxCell>
+
+    <!-- ═══════════════════════════════ ARROWS ═══════════════════════════════ -->
+
+    <!-- Input → W0 -->
+    <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#4a6fa5;strokeWidth=2;"
+      edge="1" source="input" target="w0" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Input → Matrix A -->
+    <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e8872a;strokeWidth=2;"
+      edge="1" source="input" target="matA" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Matrix A → Matrix B -->
+    <mxCell id="e3" value="compressed to rank r"
+      style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e8872a;strokeWidth=2;fontSize=10;fontStyle=2;"
+      edge="1" source="matA" target="matB" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- W0 → ADD -->
+    <mxCell id="e4" value="original result"
+      style="edgeStyle=orthogonalEdgeStyle;strokeColor=#4a6fa5;strokeWidth=2;fontSize=10;fontStyle=1;"
+      edge="1" source="w0" target="add" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Matrix B → ADD -->
+    <mxCell id="e5" value="learned correction"
+      style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e8872a;strokeWidth=2;fontSize=10;fontStyle=1;"
+      edge="1" source="matB" target="add" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- ADD → Output -->
+    <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#d53f8c;strokeWidth=2;"
+      edge="1" source="add" target="output" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Output → Deploy (dashed) -->
+    <mxCell id="e7" value="after training is done"
+      style="edgeStyle=orthogonalEdgeStyle;dashed=1;strokeColor=#805ad5;strokeWidth=2;fontSize=10;endArrow=open;endFill=0;"
+      edge="1" source="output" target="deploy" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+  </root>
+</mxGraphModel>

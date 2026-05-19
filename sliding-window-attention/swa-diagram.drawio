@@ -1,0 +1,168 @@
+<mxGraphModel dx="1400" dy="960" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1100" math="0" shadow="0">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+
+    <!-- TITLE -->
+    <mxCell id="title" value="&lt;font style='font-size:20px'&gt;&lt;b&gt;Sliding Window Attention — How It Works&lt;/b&gt;&lt;/font&gt;"
+      style="text;html=1;align=center;strokeColor=none;fillColor=none;"
+      vertex="1" parent="1">
+      <mxGeometry x="350" y="15" width="900" height="45" as="geometry" />
+    </mxCell>
+
+    <!-- ══════════ TOP: STANDARD vs SLIDING ══════════ -->
+
+    <!-- Standard Attention box -->
+    <mxCell id="std_bg" value="&lt;b&gt;Standard Attention — Every token sees EVERYTHING&lt;/b&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=12;verticalAlign=top;"
+      vertex="1" parent="1">
+      <mxGeometry x="40" y="75" width="720" height="320" as="geometry" />
+    </mxCell>
+
+    <mxCell id="std_matrix" value="&lt;b&gt;Attention Matrix (6 tokens)&lt;/b&gt;&lt;br&gt;&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp; The  cat  sat  on  the  mat&lt;br&gt;'The'  [ ✓    ✓    ✓    ✓    ✓    ✓ ]&lt;br&gt;'cat'  [ ✓    ✓    ✓    ✓    ✓    ✓ ]&lt;br&gt;'sat'  [ ✓    ✓    ✓    ✓    ✓    ✓ ]&lt;br&gt;'on'   [ ✓    ✓    ✓    ✓    ✓    ✓ ]&lt;br&gt;'the'  [ ✓    ✓    ✓    ✓    ✓    ✓ ]&lt;br&gt;'mat'  [ ✓    ✓    ✓    ✓    ✓    ✓ ]&lt;br&gt;&lt;br&gt;36 comparisons — every ✓ costs compute"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=1;fontSize=11;fontFamily=Courier New;"
+      vertex="1" parent="1">
+      <mxGeometry x="65" y="120" width="430" height="240" as="geometry" />
+    </mxCell>
+
+    <mxCell id="std_cost" value="&lt;b&gt;Compute cost: O(n²)&lt;/b&gt;&lt;br&gt;&lt;br&gt;n=4,096 tokens → 16M ops&lt;br&gt;n=100K tokens → 10B ops ❌"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=1;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="520" y="190" width="210" height="110" as="geometry" />
+    </mxCell>
+
+    <!-- Sliding Window Attention box -->
+    <mxCell id="swa_bg" value="&lt;b&gt;Sliding Window Attention — Each token sees only NEARBY tokens&lt;/b&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#38a169;strokeWidth=2;fontSize=12;verticalAlign=top;"
+      vertex="1" parent="1">
+      <mxGeometry x="840" y="75" width="720" height="320" as="geometry" />
+    </mxCell>
+
+    <mxCell id="swa_matrix" value="&lt;b&gt;Attention Matrix (window = 2)&lt;/b&gt;&lt;br&gt;&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp; The  cat  sat  on  the  mat&lt;br&gt;'The'  [ ✓    ✓    ✓    ·    ·    · ]&lt;br&gt;'cat'  [ ✓    ✓    ✓    ✓    ·    · ]&lt;br&gt;'sat'  [ ✓    ✓    ✓    ✓    ✓    · ]&lt;br&gt;'on'   [ ·    ✓    ✓    ✓    ✓    ✓ ]&lt;br&gt;'the'  [ ·    ·    ✓    ✓    ✓    ✓ ]&lt;br&gt;'mat'  [ ·    ·    ·    ✓    ✓    ✓ ]&lt;br&gt;&lt;br&gt;18 comparisons — only the diagonal band"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#38a169;strokeWidth=1;fontSize=11;fontFamily=Courier New;"
+      vertex="1" parent="1">
+      <mxGeometry x="865" y="120" width="430" height="240" as="geometry" />
+    </mxCell>
+
+    <mxCell id="swa_cost" value="&lt;b&gt;Compute cost: O(n × w)&lt;/b&gt;&lt;br&gt;&lt;br&gt;n=100K, w=512:&lt;br&gt;→ 51M ops ✅&lt;br&gt;(200× cheaper than standard)"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#38a169;strokeWidth=1;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="1320" y="190" width="210" height="110" as="geometry" />
+    </mxCell>
+
+    <!-- ══════════ MIDDLE: SSSL PATTERN ══════════ -->
+    <mxCell id="pattern_bg" value="&lt;b&gt;The window_pattern = &amp;quot;SSSL&amp;quot; — How Layers Are Assigned&lt;/b&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4e6;strokeColor=#e8872a;strokeWidth=2;fontSize=13;verticalAlign=top;"
+      vertex="1" parent="1">
+      <mxGeometry x="40" y="430" width="1520" height="230" as="geometry" />
+    </mxCell>
+
+    <!-- Layer boxes -->
+    <mxCell id="l0" value="&lt;b&gt;Layer 0&lt;/b&gt;&lt;br&gt;&lt;b&gt;S&lt;/b&gt;&lt;br&gt;Sliding Window&lt;br&gt;window = n/4&lt;br&gt;Cheap ✅"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#e8872a;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="70" y="480" width="140" height="150" as="geometry" />
+    </mxCell>
+    <mxCell id="l1" value="&lt;b&gt;Layer 1&lt;/b&gt;&lt;br&gt;&lt;b&gt;S&lt;/b&gt;&lt;br&gt;Sliding Window&lt;br&gt;window = n/4&lt;br&gt;Cheap ✅"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#e8872a;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="240" y="480" width="140" height="150" as="geometry" />
+    </mxCell>
+    <mxCell id="l2" value="&lt;b&gt;Layer 2&lt;/b&gt;&lt;br&gt;&lt;b&gt;S&lt;/b&gt;&lt;br&gt;Sliding Window&lt;br&gt;window = n/4&lt;br&gt;Cheap ✅"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#e8872a;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="410" y="480" width="140" height="150" as="geometry" />
+    </mxCell>
+    <mxCell id="l3" value="&lt;b&gt;Layer 3&lt;/b&gt;&lt;br&gt;&lt;b&gt;L&lt;/b&gt;&lt;br&gt;Full Attention&lt;br&gt;sees ALL tokens&lt;br&gt;Expensive ⚠️"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4a6fa5;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="580" y="480" width="140" height="150" as="geometry" />
+    </mxCell>
+    <mxCell id="l4" value="&lt;b&gt;Layer 4&lt;/b&gt;&lt;br&gt;&lt;b&gt;S&lt;/b&gt;&lt;br&gt;Sliding Window&lt;br&gt;window = n/4&lt;br&gt;Cheap ✅"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#e8872a;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="750" y="480" width="140" height="150" as="geometry" />
+    </mxCell>
+    <mxCell id="l5" value="&lt;b&gt;Layer 5&lt;/b&gt;&lt;br&gt;&lt;b&gt;S&lt;/b&gt;&lt;br&gt;Sliding Window&lt;br&gt;window = n/4&lt;br&gt;Cheap ✅"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#e8872a;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="920" y="480" width="140" height="150" as="geometry" />
+    </mxCell>
+    <mxCell id="l6" value="&lt;b&gt;Layer 6&lt;/b&gt;&lt;br&gt;&lt;b&gt;S&lt;/b&gt;&lt;br&gt;Sliding Window&lt;br&gt;window = n/4&lt;br&gt;Cheap ✅"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#e8872a;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="1090" y="480" width="140" height="150" as="geometry" />
+    </mxCell>
+    <mxCell id="l7" value="&lt;b&gt;Layer 7&lt;/b&gt;&lt;br&gt;&lt;b&gt;L (always)&lt;/b&gt;&lt;br&gt;Full Attention&lt;br&gt;FINAL LAYER&lt;br&gt;always full ⭐"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4a6fa5;strokeWidth=3;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="1260" y="480" width="140" height="150" as="geometry" />
+    </mxCell>
+
+    <!-- Pattern tiling label -->
+    <mxCell id="tile_label" value="Pattern 'SSSL' tiles: S S S L | S S S L ..."
+      style="text;html=1;align=center;fontSize=12;fontStyle=2;strokeColor=none;fillColor=none;"
+      vertex="1" parent="1">
+      <mxGeometry x="400" y="640" width="500" height="25" as="geometry" />
+    </mxCell>
+
+    <!-- ══════════ BOTTOM: INFORMATION FLOW ══════════ -->
+    <mxCell id="flow_bg" value="&lt;b&gt;How 'mat' Learns About 'The cat' — Even Without Direct Attention&lt;/b&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#805ad5;strokeWidth=2;fontSize=13;verticalAlign=top;"
+      vertex="1" parent="1">
+      <mxGeometry x="40" y="700" width="1520" height="350" as="geometry" />
+    </mxCell>
+
+    <mxCell id="f0" value="&lt;b&gt;Layer 0 (S)&lt;/b&gt;&lt;br&gt;'mat' sees:&lt;br&gt;on, the, mat&lt;br&gt;&lt;br&gt;'the' sees:&lt;br&gt;sat, on, the, mat&lt;br&gt;&lt;br&gt;'mat' knows local&lt;br&gt;neighbourhood only."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#805ad5;strokeWidth=2;fontSize=10;"
+      vertex="1" parent="1">
+      <mxGeometry x="65" y="750" width="200" height="265" as="geometry" />
+    </mxCell>
+    <mxCell id="f1" value="&lt;b&gt;Layer 1 (S)&lt;/b&gt;&lt;br&gt;'mat' sees:&lt;br&gt;on, the, mat&lt;br&gt;&lt;br&gt;'the' now contains&lt;br&gt;info from layer 0:&lt;br&gt;→ it saw 'sat'&lt;br&gt;&lt;br&gt;'mat' indirectly&lt;br&gt;learns about 'sat'&lt;br&gt;via 'the'."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#805ad5;strokeWidth=2;fontSize=10;"
+      vertex="1" parent="1">
+      <mxGeometry x="305" y="750" width="200" height="265" as="geometry" />
+    </mxCell>
+    <mxCell id="f2" value="&lt;b&gt;Layer 2 (S)&lt;/b&gt;&lt;br&gt;'mat' sees:&lt;br&gt;on, the, mat&lt;br&gt;&lt;br&gt;'the' now contains&lt;br&gt;info from layers 0+1:&lt;br&gt;→ it knows about&lt;br&gt;'sat', 'on', 'cat'&lt;br&gt;&lt;br&gt;'mat' now indirectly&lt;br&gt;knows most of the&lt;br&gt;sentence."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#805ad5;strokeWidth=2;fontSize=10;"
+      vertex="1" parent="1">
+      <mxGeometry x="545" y="750" width="200" height="265" as="geometry" />
+    </mxCell>
+    <mxCell id="f3" value="&lt;b&gt;Layer 3 (L) — Full&lt;/b&gt;&lt;br&gt;'mat' DIRECTLY sees:&lt;br&gt;The, cat, sat, on,&lt;br&gt;the, mat&lt;br&gt;&lt;br&gt;All tokens have&lt;br&gt;already exchanged&lt;br&gt;local info.&lt;br&gt;&lt;br&gt;Full context is now&lt;br&gt;woven together.&lt;br&gt;'cat sat on the mat'&lt;br&gt;fully understood. ✅"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4a6fa5;strokeWidth=3;fontSize=10;"
+      vertex="1" parent="1">
+      <mxGeometry x="785" y="750" width="200" height="265" as="geometry" />
+    </mxCell>
+
+    <!-- flow arrows -->
+    <mxCell id="fa1" value="info&lt;br&gt;propagates"
+      style="edgeStyle=orthogonalEdgeStyle;strokeColor=#805ad5;strokeWidth=2;fontSize=9;fontStyle=2;"
+      edge="1" source="f0" target="f1" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="fa2" value="more&lt;br&gt;context"
+      style="edgeStyle=orthogonalEdgeStyle;strokeColor=#805ad5;strokeWidth=2;fontSize=9;fontStyle=2;"
+      edge="1" source="f1" target="f2" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="fa3" value="global&lt;br&gt;integration"
+      style="edgeStyle=orthogonalEdgeStyle;strokeColor=#4a6fa5;strokeWidth=2;fontSize=9;fontStyle=2;"
+      edge="1" source="f2" target="f3" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Summary callout -->
+    <mxCell id="summary" value="&lt;b&gt;Key insight:&lt;/b&gt; Local windows in S layers pass info token-by-token through the chain. L layers then stitch the full picture together. Final layer is ALWAYS full (L)."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#f9a825;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="1050" y="820" width="480" height="80" as="geometry" />
+    </mxCell>
+
+    <mxCell id="patterns_ref" value="&lt;b&gt;Pattern examples:&lt;/b&gt;&lt;br&gt;'L' → all full (standard)&lt;br&gt;'SSSL' → 3 cheap : 1 full&lt;br&gt;'SSSSL' → 4 cheap : 1 full&lt;br&gt;Final layer always forced to L"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#f9a825;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="1050" y="920" width="480" height="100" as="geometry" />
+    </mxCell>
+
+  </root>
+</mxGraphModel>

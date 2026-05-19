@@ -1,0 +1,146 @@
+<mxGraphModel dx="1400" dy="960" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1000" math="0" shadow="0">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+
+    <!-- TITLE -->
+    <mxCell id="title" value="&lt;font style='font-size:20px'&gt;&lt;b&gt;GQA: Grouped-Query Attention — How It Works&lt;/b&gt;&lt;/font&gt;"
+      style="text;html=1;align=center;strokeColor=none;fillColor=none;"
+      vertex="1" parent="1">
+      <mxGeometry x="300" y="20" width="900" height="50" as="geometry" />
+    </mxCell>
+
+    <!-- ══════════ COLUMN 1: MHA ══════════ -->
+    <mxCell id="mha_bg" value="&lt;b&gt;Multi-Head Attention (MHA)&lt;/b&gt;&lt;br&gt;Original — Full Quality, Slow Inference"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4a6fa5;strokeWidth=2;fontSize=12;verticalAlign=top;"
+      vertex="1" parent="1">
+      <mxGeometry x="40" y="90" width="380" height="760" as="geometry" />
+    </mxCell>
+
+    <!-- MHA Query heads -->
+    <mxCell id="mha_q" value="&lt;b&gt;32 Query Heads&lt;/b&gt;&lt;br&gt;Q₁ Q₂ Q₃ ... Q₃₂&lt;br&gt;&lt;br&gt;Each asks a different question:&lt;br&gt;&lt;i&gt;'Who is the subject?'&lt;/i&gt;&lt;br&gt;&lt;i&gt;'What is the verb?'&lt;/i&gt;&lt;br&gt;&lt;i&gt;'What comes next?'&lt;/i&gt; etc."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4a6fa5;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="65" y="145" width="330" height="120" as="geometry" />
+    </mxCell>
+
+    <!-- MHA KV heads -->
+    <mxCell id="mha_kv" value="&lt;b&gt;32 Key Heads + 32 Value Heads&lt;/b&gt;&lt;br&gt;K₁...K₃₂  |  V₁...V₃₂&lt;br&gt;&lt;br&gt;Every query gets its OWN&lt;br&gt;dedicated K and V.&lt;br&gt;Maximum diversity."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4a6fa5;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="65" y="310" width="330" height="120" as="geometry" />
+    </mxCell>
+
+    <!-- MHA KV cache problem -->
+    <mxCell id="mha_cache" value="&lt;b&gt;KV Cache at Inference&lt;/b&gt;&lt;br&gt;&lt;br&gt;Per token stored:&lt;br&gt;32 K vectors + 32 V vectors&lt;br&gt;= &lt;b&gt;64 vectors per token&lt;/b&gt;&lt;br&gt;&lt;br&gt;For 4096 tokens × 32 layers:&lt;br&gt;→ Several GB of cache&lt;br&gt;→ GPU spends most time&lt;br&gt;&amp;nbsp;&amp;nbsp;reading/writing memory&lt;br&gt;→ &lt;b&gt;SLOW inference&lt;/b&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="65" y="480" width="330" height="185" as="geometry" />
+    </mxCell>
+
+    <!-- MHA summary -->
+    <mxCell id="mha_sum" value="✅ Best quality&lt;br&gt;❌ Largest KV cache&lt;br&gt;❌ Slowest inference"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=12;fontStyle=1;"
+      vertex="1" parent="1">
+      <mxGeometry x="65" y="710" width="330" height="110" as="geometry" />
+    </mxCell>
+
+    <!-- ══════════ COLUMN 2: MQA ══════════ -->
+    <mxCell id="mqa_bg" value="&lt;b&gt;Multi-Query Attention (MQA)&lt;/b&gt;&lt;br&gt;Shazeer 2019 — Fast but Quality Drops"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#805ad5;strokeWidth=2;fontSize=12;verticalAlign=top;"
+      vertex="1" parent="1">
+      <mxGeometry x="460" y="90" width="380" height="760" as="geometry" />
+    </mxCell>
+
+    <mxCell id="mqa_q" value="&lt;b&gt;32 Query Heads (kept)&lt;/b&gt;&lt;br&gt;Q₁ Q₂ Q₃ ... Q₃₂&lt;br&gt;&lt;br&gt;Still 32 queries —&lt;br&gt;no change here."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#805ad5;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="485" y="145" width="330" height="120" as="geometry" />
+    </mxCell>
+
+    <mxCell id="mqa_kv" value="&lt;b&gt;Only 1 Key Head + 1 Value Head&lt;/b&gt;&lt;br&gt;K₁  |  V₁&lt;br&gt;&lt;br&gt;ALL 32 queries share the&lt;br&gt;SAME single K and V.&lt;br&gt;Very limited diversity."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#805ad5;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="485" y="310" width="330" height="120" as="geometry" />
+    </mxCell>
+
+    <mxCell id="mqa_cache" value="&lt;b&gt;KV Cache at Inference&lt;/b&gt;&lt;br&gt;&lt;br&gt;Per token stored:&lt;br&gt;1 K vector + 1 V vector&lt;br&gt;= &lt;b&gt;2 vectors per token&lt;/b&gt;&lt;br&gt;&lt;br&gt;32× smaller than MHA!&lt;br&gt;→ GPU barely touches memory&lt;br&gt;→ &lt;b&gt;VERY fast inference&lt;/b&gt;&lt;br&gt;&lt;br&gt;But: all heads share 1 K/V&lt;br&gt;→ less expressive → &lt;b&gt;quality drops&lt;/b&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#805ad5;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="485" y="480" width="330" height="185" as="geometry" />
+    </mxCell>
+
+    <mxCell id="mqa_sum" value="⚠️ Quality drops noticeably&lt;br&gt;✅ Smallest KV cache (32× smaller)&lt;br&gt;✅ Fastest inference"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=12;fontStyle=1;"
+      vertex="1" parent="1">
+      <mxGeometry x="485" y="710" width="330" height="110" as="geometry" />
+    </mxCell>
+
+    <!-- ══════════ COLUMN 3: GQA ══════════ -->
+    <mxCell id="gqa_bg" value="&lt;b&gt;Grouped-Query Attention (GQA)&lt;/b&gt;&lt;br&gt;This Paper — Best of Both Worlds ✨"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#38a169;strokeWidth=2;fontSize=12;verticalAlign=top;"
+      vertex="1" parent="1">
+      <mxGeometry x="880" y="90" width="560" height="760" as="geometry" />
+    </mxCell>
+
+    <mxCell id="gqa_q" value="&lt;b&gt;32 Query Heads (kept)&lt;/b&gt;&lt;br&gt;Q₁ Q₂ Q₃ ... Q₃₂&lt;br&gt;&lt;br&gt;Still 32 queries —&lt;br&gt;same as before."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#38a169;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="905" y="145" width="510" height="100" as="geometry" />
+    </mxCell>
+
+    <mxCell id="gqa_groups" value="&lt;b&gt;Split into G=8 groups of 4 queries each&lt;/b&gt;&lt;br&gt;&lt;br&gt;Group 1: Q₁  Q₂  Q₃  Q₄  → share K₁ V₁&lt;br&gt;Group 2: Q₅  Q₆  Q₇  Q₈  → share K₂ V₂&lt;br&gt;Group 3: Q₉  Q₁₀ Q₁₁ Q₁₂ → share K₃ V₃&lt;br&gt;Group 4: Q₁₃ Q₁₄ Q₁₅ Q₁₆ → share K₄ V₄&lt;br&gt;Group 5: Q₁₇ Q₁₈ Q₁₉ Q₂₀ → share K₅ V₅&lt;br&gt;Group 6: Q₂₁ Q₂₂ Q₂₃ Q₂₄ → share K₆ V₆&lt;br&gt;Group 7: Q₂₅ Q₂₆ Q₂₇ Q₂₈ → share K₇ V₇&lt;br&gt;Group 8: Q₂₉ Q₃₀ Q₃₁ Q₃₂ → share K₈ V₈"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#38a169;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="905" y="260" width="510" height="185" as="geometry" />
+    </mxCell>
+
+    <mxCell id="gqa_cache" value="&lt;b&gt;KV Cache at Inference&lt;/b&gt;&lt;br&gt;&lt;br&gt;Per token stored:&lt;br&gt;8 K vectors + 8 V vectors&lt;br&gt;= &lt;b&gt;16 vectors per token&lt;/b&gt;&lt;br&gt;&lt;br&gt;4× smaller than MHA.&lt;br&gt;Each group still has its own K/V&lt;br&gt;→ more diverse than MQA&lt;br&gt;→ &lt;b&gt;quality stays near MHA&lt;/b&gt;&lt;br&gt;→ &lt;b&gt;speed stays near MQA&lt;/b&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#38a169;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="905" y="460" width="510" height="185" as="geometry" />
+    </mxCell>
+
+    <mxCell id="gqa_sum" value="✅ Quality close to MHA&lt;br&gt;✅ Speed close to MQA&lt;br&gt;✅ 4× smaller KV cache than MHA&lt;br&gt;✅ Used in LLaMA 3, Mistral, Gemma..."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=12;fontStyle=1;"
+      vertex="1" parent="1">
+      <mxGeometry x="905" y="710" width="510" height="110" as="geometry" />
+    </mxCell>
+
+    <!-- ══════════ UPTRAINING BOX ══════════ -->
+    <mxCell id="uptrain_bg" value="&lt;b&gt;Bonus: The Uptraining Method — Convert an Existing MHA Model to GQA Cheaply&lt;/b&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4e6;strokeColor=#e8872a;strokeWidth=2;fontSize=12;verticalAlign=top;"
+      vertex="1" parent="1">
+      <mxGeometry x="40" y="870" width="1400" height="110" as="geometry" />
+    </mxCell>
+
+    <mxCell id="step_a" value="&lt;b&gt;Step 1 — Mean Pool&lt;/b&gt;&lt;br&gt;For each group, average the K heads:&lt;br&gt;K_new = (K₁+K₂+K₃+K₄) / 4&lt;br&gt;Do the same for V heads."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#e8872a;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="65" y="910" width="330" height="55" as="geometry" />
+    </mxCell>
+
+    <mxCell id="step_b" value="&lt;b&gt;Step 2 — Uptrain Briefly&lt;/b&gt;&lt;br&gt;Run training for just 5% of original compute.&lt;br&gt;Model adapts to the pooled heads quickly."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#e8872a;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="430" y="910" width="330" height="55" as="geometry" />
+    </mxCell>
+
+    <mxCell id="step_c" value="&lt;b&gt;Result&lt;/b&gt;&lt;br&gt;GQA model with near-MHA quality.&lt;br&gt;20× cheaper than training GQA from scratch."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#38a169;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="795" y="910" width="330" height="55" as="geometry" />
+    </mxCell>
+
+    <!-- Step arrows -->
+    <mxCell id="ua1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e8872a;strokeWidth=2;"
+      edge="1" source="step_a" target="step_b" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="ua2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e8872a;strokeWidth=2;"
+      edge="1" source="step_b" target="step_c" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+  </root>
+</mxGraphModel>

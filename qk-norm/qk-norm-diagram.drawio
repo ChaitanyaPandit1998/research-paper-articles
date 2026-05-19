@@ -1,0 +1,254 @@
+<mxGraphModel dx="1400" dy="960" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1050" math="0" shadow="0">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+
+    <!-- TITLE -->
+    <mxCell id="title" value="&lt;font style='font-size:20px'&gt;&lt;b&gt;QK Norm — Preventing Attention Collapse&lt;/b&gt;&lt;/font&gt;"
+      style="text;html=1;align=center;strokeColor=none;fillColor=none;"
+      vertex="1" parent="1">
+      <mxGeometry x="350" y="20" width="800" height="50" as="geometry" />
+    </mxCell>
+
+    <!-- ══════════ THE PROBLEM ══════════ -->
+    <mxCell id="prob_bg" value="&lt;b&gt;The Problem: Attention Entropy Collapse&lt;/b&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffd7d7;strokeColor=#b85450;strokeWidth=2;fontSize=13;verticalAlign=top;"
+      vertex="1" parent="1">
+      <mxGeometry x="40" y="85" width="1420" height="170" as="geometry" />
+    </mxCell>
+
+    <mxCell id="prob1" value="&lt;b&gt;As training progresses...&lt;/b&gt;&lt;br&gt;Weight matrices W_q and W_k grow larger.&lt;br&gt;→ Q and K vectors have bigger magnitudes.&lt;br&gt;→ Dot products Q·K become huge."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=1;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="65" y="130" width="310" height="100" as="geometry" />
+    </mxCell>
+
+    <mxCell id="prob2" value="&lt;b&gt;Huge dot products → peaked softmax&lt;/b&gt;&lt;br&gt;softmax([47, 7, 2, 1, 1, 0]):&lt;br&gt;&lt;br&gt;'The'  ████████████████ 0.9999&lt;br&gt;'sat'  ▏ 0.0001&lt;br&gt;others ▏ ~0"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=1;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="415" y="130" width="310" height="100" as="geometry" />
+    </mxCell>
+
+    <mxCell id="prob3" value="&lt;b&gt;Result: Attention Sink&lt;/b&gt;&lt;br&gt;Model attends almost entirely to one token.&lt;br&gt;All other tokens are ignored.&lt;br&gt;Model can't learn from context.&lt;br&gt;Training becomes unstable."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=1;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="765" y="130" width="310" height="100" as="geometry" />
+    </mxCell>
+
+    <mxCell id="prob4" value="&lt;b&gt;Worse at long contexts&lt;/b&gt;&lt;br&gt;More tokens = more chances&lt;br&gt;for one to become a sink.&lt;br&gt;16K+ tokens: very high risk."
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=1;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="1115" y="130" width="310" height="100" as="geometry" />
+    </mxCell>
+
+    <!-- arrows between problem boxes -->
+    <mxCell id="pa1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#b85450;strokeWidth=2;"
+      edge="1" source="prob1" target="prob2" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="pa2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#b85450;strokeWidth=2;"
+      edge="1" source="prob2" target="prob3" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="pa3" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#b85450;strokeWidth=2;"
+      edge="1" source="prob3" target="prob4" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- ══════════ TWO COLUMN COMPARISON ══════════ -->
+
+    <!-- LEFT: Standard Attention -->
+    <mxCell id="std_bg" value="&lt;b&gt;Standard Attention (No QK Norm)&lt;/b&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4a6fa5;strokeWidth=2;fontSize=13;verticalAlign=top;"
+      vertex="1" parent="1">
+      <mxGeometry x="40" y="285" width="680" height="530" as="geometry" />
+    </mxCell>
+
+    <mxCell id="std_input" value="&lt;b&gt;Input token x&lt;/b&gt;&lt;br&gt;e.g. 'cat'"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=12;"
+      vertex="1" parent="1">
+      <mxGeometry x="280" y="330" width="200" height="55" as="geometry" />
+    </mxCell>
+
+    <mxCell id="std_wq" value="&lt;b&gt;Multiply by W_q&lt;/b&gt;&lt;br&gt;Q = x × W_q&lt;br&gt;Learns 'what to look for'"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4a6fa5;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="90" y="435" width="260" height="70" as="geometry" />
+    </mxCell>
+
+    <mxCell id="std_wk" value="&lt;b&gt;Multiply by W_k&lt;/b&gt;&lt;br&gt;K = x × W_k&lt;br&gt;Learns 'what it contains'"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4a6fa5;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="410" y="435" width="260" height="70" as="geometry" />
+    </mxCell>
+
+    <mxCell id="std_rope_q" value="&lt;b&gt;Apply RoPE to Q&lt;/b&gt;&lt;br&gt;Rotates Q by position angle&lt;br&gt;Encodes word order"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4a6fa5;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="90" y="555" width="260" height="70" as="geometry" />
+    </mxCell>
+
+    <mxCell id="std_rope_k" value="&lt;b&gt;Apply RoPE to K&lt;/b&gt;&lt;br&gt;Rotates K by position angle&lt;br&gt;Encodes word order"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4a6fa5;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="410" y="555" width="260" height="70" as="geometry" />
+    </mxCell>
+
+    <mxCell id="std_dot" value="&lt;b&gt;Dot Product: Q · Kᵀ / √d&lt;/b&gt;&lt;br&gt;⚠️ Magnitudes unconstrained!&lt;br&gt;Result can be very large (e.g. 47)"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="200" y="675" width="360" height="70" as="geometry" />
+    </mxCell>
+
+    <mxCell id="std_softmax" value="&lt;b&gt;Softmax → Attention Weights&lt;/b&gt;&lt;br&gt;'The' → 0.9999&lt;br&gt;'sat' → 0.0001&lt;br&gt;others → ~0&lt;br&gt;❌ COLLAPSED"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="200" y="790" width="360" height="90" as="geometry" />
+    </mxCell>
+
+    <!-- Standard flow arrows -->
+    <mxCell id="se0a" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#4a6fa5;strokeWidth=2;"
+      edge="1" source="std_input" target="std_wq" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="se0b" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#4a6fa5;strokeWidth=2;"
+      edge="1" source="std_input" target="std_wk" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="se1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#4a6fa5;strokeWidth=2;"
+      edge="1" source="std_wq" target="std_rope_q" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="se2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#4a6fa5;strokeWidth=2;"
+      edge="1" source="std_wk" target="std_rope_k" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="se3" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#4a6fa5;strokeWidth=2;"
+      edge="1" source="std_rope_q" target="std_dot" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="se4" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#4a6fa5;strokeWidth=2;"
+      edge="1" source="std_rope_k" target="std_dot" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="se5" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#b85450;strokeWidth=2;"
+      edge="1" source="std_dot" target="std_softmax" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- RIGHT: QK Norm Attention -->
+    <mxCell id="qkn_bg" value="&lt;b&gt;QK Norm Attention ✨&lt;/b&gt;"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#38a169;strokeWidth=2;fontSize=13;verticalAlign=top;"
+      vertex="1" parent="1">
+      <mxGeometry x="780" y="285" width="680" height="530" as="geometry" />
+    </mxCell>
+
+    <mxCell id="qkn_input" value="&lt;b&gt;Input token x&lt;/b&gt;&lt;br&gt;e.g. 'cat'"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=12;"
+      vertex="1" parent="1">
+      <mxGeometry x="1020" y="330" width="200" height="55" as="geometry" />
+    </mxCell>
+
+    <mxCell id="qkn_wq" value="&lt;b&gt;Multiply by W_q&lt;/b&gt;&lt;br&gt;Q = x × W_q"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#38a169;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="830" y="435" width="240" height="70" as="geometry" />
+    </mxCell>
+
+    <mxCell id="qkn_wk" value="&lt;b&gt;Multiply by W_k&lt;/b&gt;&lt;br&gt;K = x × W_k"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#38a169;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="1170" y="435" width="240" height="70" as="geometry" />
+    </mxCell>
+
+    <mxCell id="qkn_rope_q" value="&lt;b&gt;Apply RoPE to Q&lt;/b&gt;&lt;br&gt;Encodes position"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#38a169;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="830" y="555" width="240" height="70" as="geometry" />
+    </mxCell>
+
+    <mxCell id="qkn_rope_k" value="&lt;b&gt;Apply RoPE to K&lt;/b&gt;&lt;br&gt;Encodes position"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#38a169;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="1170" y="555" width="240" height="70" as="geometry" />
+    </mxCell>
+
+    <!-- RMSNorm boxes — the key addition -->
+    <mxCell id="qkn_rms_q" value="&lt;b&gt;RMSNorm(Q) ← KEY STEP&lt;/b&gt;&lt;br&gt;Rescales Q to controlled magnitude.&lt;br&gt;Q / RMS(Q) × γ"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#e8872a;strokeWidth=3;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="830" y="675" width="240" height="75" as="geometry" />
+    </mxCell>
+
+    <mxCell id="qkn_rms_k" value="&lt;b&gt;RMSNorm(K) ← KEY STEP&lt;/b&gt;&lt;br&gt;Rescales K to controlled magnitude.&lt;br&gt;K / RMS(K) × γ"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#e8872a;strokeWidth=3;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="1170" y="675" width="240" height="75" as="geometry" />
+    </mxCell>
+
+    <mxCell id="qkn_dot" value="&lt;b&gt;Dot Product: Q_norm · K_normᵀ / √d&lt;/b&gt;&lt;br&gt;✅ Magnitudes now bounded!&lt;br&gt;Result is controlled (e.g. 3.95)"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#38a169;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="940" y="795" width="360" height="70" as="geometry" />
+    </mxCell>
+
+    <mxCell id="qkn_softmax" value="&lt;b&gt;Softmax → Attention Weights&lt;/b&gt;&lt;br&gt;'The' → 0.39&lt;br&gt;'sat' → 0.25&lt;br&gt;'on'  → 0.15&lt;br&gt;✅ HEALTHY — spread out"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#38a169;strokeWidth=2;fontSize=11;"
+      vertex="1" parent="1">
+      <mxGeometry x="940" y="905" width="360" height="85" as="geometry" />
+    </mxCell>
+
+    <!-- QK Norm flow arrows -->
+    <mxCell id="qe0a" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#38a169;strokeWidth=2;"
+      edge="1" source="qkn_input" target="qkn_wq" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="qe0b" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#38a169;strokeWidth=2;"
+      edge="1" source="qkn_input" target="qkn_wk" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="qe1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#38a169;strokeWidth=2;"
+      edge="1" source="qkn_wq" target="qkn_rope_q" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="qe2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#38a169;strokeWidth=2;"
+      edge="1" source="qkn_wk" target="qkn_rope_k" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="qe3" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e8872a;strokeWidth=2;"
+      edge="1" source="qkn_rope_q" target="qkn_rms_q" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="qe4" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#e8872a;strokeWidth=2;"
+      edge="1" source="qkn_rope_k" target="qkn_rms_k" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="qe5" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#38a169;strokeWidth=2;"
+      edge="1" source="qkn_rms_q" target="qkn_dot" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="qe6" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#38a169;strokeWidth=2;"
+      edge="1" source="qkn_rms_k" target="qkn_dot" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="qe7" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#38a169;strokeWidth=2;"
+      edge="1" source="qkn_dot" target="qkn_softmax" parent="1">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- RMSNorm formula callout -->
+    <mxCell id="rms_note" value="&lt;b&gt;RMSNorm formula:&lt;/b&gt;&lt;br&gt;RMSNorm(x) = x / RMS(x) × γ&lt;br&gt;&lt;br&gt;RMS(x) = √(mean(x²))&lt;br&gt;&lt;br&gt;γ = learnable scale per dim&lt;br&gt;(controls attention temperature)"
+      style="shape=callout;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#f9a825;strokeWidth=2;fontSize=10;perimeter=calloutPerimeter;size=15;position=0.5;direction=west;"
+      vertex="1" parent="1">
+      <mxGeometry x="1450" y="665" width="200" height="130" as="geometry" />
+    </mxCell>
+
+    <!-- Adoption banner -->
+    <mxCell id="adoption" value="&lt;b&gt;Used in:&lt;/b&gt;  Gemma (Google)  |  PaLM 2 (Google)  |  LLaMA variants  — especially effective at long context lengths (16K+ tokens)"
+      style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0f7fa;strokeColor=#00838f;strokeWidth=2;fontSize=12;"
+      vertex="1" parent="1">
+      <mxGeometry x="40" y="990" width="1610" height="45" as="geometry" />
+    </mxCell>
+
+  </root>
+</mxGraphModel>
