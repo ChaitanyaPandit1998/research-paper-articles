@@ -267,7 +267,9 @@ GPU3: rows 16384..24575 × local_activations → partial [3072]
 
 ---
 
-## How Colwise Output Feeds into Rowwise Input
+## How Colwise Output Feeds into Rowwise Input (this is Tensor Parallelism)
+
+Both GPUs work on the *same pair of layers* simultaneously, each holding a different slice of the *same weight matrices*, synchronizing via `AllReduce`. That's what makes this TP rather than PP.
 
 ### Setup
 
@@ -358,3 +360,66 @@ GPU2:  has Y columns [2,3]  →  needs W2 rows [2,3]  ✓
 ```
 
 This is the mathematical reason colwise and rowwise are always paired — the output partitioning of one exactly matches the input partitioning of the other.
+
+---
+
+## Same Example, but as Pipeline Parallelism
+
+### Setup
+- **Layer 1** (full): `W1` shape `[4 × 4]` — lives entirely on **GPU1**
+- **Layer 2** (full): `W2` shape `[4 × 2]` — lives entirely on **GPU2**
+- **Input** `X` shape `[1 × 4]`
+
+Full computation (no parallelism):
+```
+Y = X @ W1        # [1×4] @ [4×4] = [1×4]
+Z = Y @ W2        # [1×4] @ [4×2] = [1×2]
+```
+
+### Step 1 — GPU1 holds the whole first layer
+
+```
+GPU1:  W1  [4×4]   (the entire matrix, not split)
+```
+
+GPU1 receives the input `X` and computes the **full** output `Y`:
+```
+GPU1:  Y = X @ W1   →  shape [1×4]   (complete result, no partial slices)
+```
+
+### Step 2 — Send `Y` over the network to GPU2
+
+```
+GPU1 ──── Y [1×4] ────►  GPU2
+```
+This is a **point-to-point transfer** of an activation tensor — not an `AllReduce`. GPU1 is now idle (or, with pipelining across multiple micro-batches, starts processing the *next* input).
+
+### Step 3 — GPU2 holds the whole second layer
+
+```
+GPU2:  W2  [4×2]   (the entire matrix, not split)
+```
+
+GPU2 receives `Y` and computes the **full** final output:
+```
+GPU2:  Z = Y @ W2   →  shape [1×2]   ✓  (complete result, no summing needed)
+```
+
+### Why It's Different From TP
+
+```
+TP:  both GPUs compute simultaneously, each on a SLICE of the same layer's weights
+     → needs AllReduce to combine partial results into one full output
+
+PP:  each GPU computes the FULL result for its own layer, one after another
+     → needs a data transfer (not a reduce) to hand the activation to the next stage
+```
+
+| | TP (colwise/rowwise example above) | PP (this example) |
+|---|---|---|
+| Who holds `W1`/`W2` | Both GPUs, each a slice | One GPU each, full matrix |
+| Computation timing | Simultaneous | Sequential (assembly line) |
+| Communication | `AllReduce` (sum partials) | Point-to-point send of activations |
+| GPU utilization | Both busy at once, per layer | One idle while the other computes (unless micro-batched) |
+
+This matches `base_model_pp_plan` in Gemma's config (see above): `embed_tokens` on GPU1, a chunk of `layers` on GPU2, the rest of `layers` + `norm` on GPU3 — each stage computes its full sub-network and ships the resulting hidden state to the next GPU.
