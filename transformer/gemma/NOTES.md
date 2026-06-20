@@ -138,11 +138,43 @@ Entire layers are assigned to different GPUs. Data flows through them one after 
 
 The `base_model_pp_plan` in config describes this:
 ```python
-"embed_tokens": (["input_ids"], ["inputs_embeds"]),    # GPU 1
-"layers":       (["hidden_states", ...], [...]),        # GPU 2
-"norm":         (["hidden_states"], ["hidden_states"])  # GPU 3
+base_model_pp_plan = {
+    "embed_tokens": (["input_ids"], ["inputs_embeds"]),
+    "layers": (["hidden_states", "attention_mask"], ["hidden_states"]),
+    "norm": (["hidden_states"], ["hidden_states"]),
+}
 ```
 The tuples define **what tensor comes in** and **what tensor goes out** at each stage, so the framework knows what to send over the network between GPUs.
+
+#### Reading the structure
+
+Each entry is `"module_name": (input_arg_names, output_arg_names)`:
+
+- **Key** = the submodule name in the model (matches `self.embed_tokens`, `self.layers`, `self.norm` in `GemmaModel`)
+- **First list** = names of the tensors this stage *needs as input*
+- **Second list** = names of the tensors this stage *produces as output*
+
+#### How it maps onto the 3-GPU pipeline
+
+```
+GPU1                          GPU2                                  GPU3
+embed_tokens                  layers[0..N]                          norm
+─────────────                 ─────────────                         ─────────────
+in:  input_ids                in:  hidden_states, attention_mask    in:  hidden_states
+out: inputs_embeds            out: hidden_states                    out: hidden_states
+```
+
+1. **`embed_tokens` (GPU1)** — takes raw `input_ids` (token IDs), looks them up in the embedding table, and produces `inputs_embeds`. This is the first stage, so its only input is the thing the user gave the model.
+
+2. **`layers` (GPU2)** — its declared input is `hidden_states`, not `inputs_embeds`. The framework knows (from naming convention inside `GemmaModel.forward`) that `inputs_embeds` becomes the *first* `hidden_states` before entering the decoder blocks. It also needs `attention_mask` — unlike `embed_tokens`, attention requires this side-channel tensor too, so the plan declares it as a second required input that must also be shipped to GPU2. It runs all the decoder blocks and outputs the final `hidden_states` after the last layer.
+
+3. **`norm` (GPU3)** — takes that `hidden_states`, applies the final `RMSNorm`, and outputs `hidden_states` again (same name in and out — it transforms in place conceptually).
+
+#### Why it's declared this way instead of just chaining blindly
+
+- It lets the framework **automatically insert the right send/recv ops** between stages: GPU1 sends `inputs_embeds` → GPU2 relabels/accepts it as `hidden_states`; GPU2 sends `hidden_states` → GPU3 receives it as `hidden_states`.
+- It also flags **extra tensors that must be forwarded alongside the main activation** — `attention_mask` doesn't originate from the previous stage's output, so the plan tells the framework "also send this raw input through to whichever stage needs it," not just `hidden_states`.
+- This is exactly the assembly-line picture above: each stage's contract is "I need X, I hand off Y" — and the plan is what lets `transformers` build that pipeline automatically instead of manually wiring `.to(device)` calls and send/recv between every layer.
 
 ---
 
