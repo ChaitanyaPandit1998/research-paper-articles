@@ -159,6 +159,48 @@ In practice, large models use **both together**: TP within a node (fast NVLink) 
 
 ---
 
+### Tensor Parallelism — Pros and Cons
+
+**Pros**
+- No "bubble"/idle time — all GPUs compute at once on every forward pass, so there's no warm-up or drain period.
+- Reduces per-GPU memory for very wide layers (huge `hidden_size`/`intermediate_size`), which is exactly the bottleneck PP can't fix on its own.
+- Latency per token is low for a single request, since the layer's output is ready as soon as one `AllReduce` completes — there's no waiting on several sequential stages.
+
+**Cons**
+- Needs an `AllReduce` after every split layer (twice per transformer block — once for attention, once for MLP) — this is frequent, latency-sensitive communication.
+- Only works well with very fast interconnects (NVLink/NVSwitch within a node); over slower networks (e.g. across nodes/Ethernet) the `AllReduce` cost dominates and throughput collapses.
+- Doesn't reduce the *number* of layers stored per GPU — every GPU still holds a slice of *every* layer, so it doesn't help when the model is deep rather than wide.
+
+**Where to use it:** within a single multi-GPU node (NVLink-connected), to shard very wide layers (large `hidden_size` / `intermediate_size` / many attention heads) when a single GPU can't fit one layer's weights or activations.
+
+---
+
+### Pipeline Parallelism — Pros and Cons
+
+**Pros**
+- Communication is just point-to-point activation hand-off between adjacent stages — far less frequent and far less bandwidth-hungry than TP's `AllReduce`, so it tolerates slow interconnects (e.g. across nodes, Ethernet/InfiniBand at rack scale).
+- Scales naturally with model *depth* — each GPU only needs to hold a contiguous chunk of layers, so very deep models (many `num_hidden_layers`) fit even when no single GPU could hold the whole stack.
+- Combines cleanly with micro-batching to keep all stages busy concurrently (different micro-batches at different stages), recovering much of the idle-time cost.
+
+**Cons**
+- Introduces a "pipeline bubble": early stages sit idle waiting for the first micro-batch to arrive, and late stages sit idle until the last one drains — wasted compute that grows with the number of stages.
+- End-to-end latency for a single request is higher than TP, since the input must pass through every stage sequentially before the output is ready.
+- Uneven layer-to-GPU partitioning (e.g. an embedding/lm_head stage that's cheaper than a stage full of transformer blocks) can leave some GPUs waiting on others — balancing stage cost requires care.
+
+**Where to use it:** across nodes (slower network), to split very deep models (many layers) when the model doesn't fit on the GPUs available within one node, or when wide layers alone aren't the bottleneck.
+
+---
+
+### Putting It Together
+
+| Scenario | Use |
+|---|---|
+| Single node, multiple GPUs, layer too wide to fit on one GPU | TP |
+| Multiple nodes, model too deep to fit even after TP within a node | PP |
+| Both — model is huge in both width and depth | TP within each node + PP across nodes (the common large-LLM setup) |
+
+---
+
 ## How `colwise` vs `rowwise` is Determined
 
 ### The Core Rule
