@@ -111,37 +111,42 @@ Output tokens (autoregressive decode — the expensive part of inference) make u
 
 A single RTX 4090 is tight if traffic concentrates into business hours rather than spreading across 24h — A100/H100 have more headroom.
 
-### Dedicated, always-on GPU cost — RunPod Secure Cloud pricing (verified against runpod.io/pricing)
-
-RunPod has two tiers: **Community Cloud** (cheaper, instances can be preempted/reclaimed at any time — not suitable for live production traffic) and **Secure Cloud** (reliable, enterprise-grade — used below).
+### Dedicated, always-on GPU cost — RunPod on-demand pricing (verified directly against runpod.io/pricing)
 
 Monthly uses 730 hours (365×24/12, the standard average-month convention) and annual uses 8,760 hours (24×365), so the two columns are internally consistent — not monthly×12, which understates the year by ~5 days' worth of runtime.
 
-| GPU | Community Cloud $/hr | Secure Cloud $/hr (used for estimate) | Monthly (730 hrs) | Annual (8,760 hrs) | Headroom |
+| GPU | $/hr (RunPod, verified) | Monthly (730 hrs) | Annual (8,760 hrs) | Headroom |
+|---|---|---|---|---|
+| RTX 4090 24GB (×1) | $0.69 | ~$504 | ~$6,044 | Tight — consider 2× for safety margin |
+| RTX 4090 24GB (×2, recommended) | $0.69 | ~$1,007 | ~$12,089 | Comfortable |
+| A100 SXM 80GB (×1) | $1.49 | ~$1,088 | ~$13,052 | Comfortable |
+| H100 SXM 80GB (×1) | $3.29 | ~$2,402 | ~$28,820 | Very comfortable, room to grow |
+
+For reference, RunPod also lists A100 PCIe at $1.39/hr and H100 PCIe at $2.89/hr — PCIe variants are slightly cheaper than SXM but with lower interconnect bandwidth (not a concern for single-GPU inference serving).
+
+### Pay-per-use model — RunPod, billed only for GPU-hours actually consumed
+
+Instead of renting a GPU 24/7, this model assumes RunPod's pay-per-use/Serverless billing: you pay only for the GPU-hours actually needed to process the workload (from the GPU-hours/day table above), not for idle time.
+
+| GPU | $/hr (RunPod, verified) | GPU-hours/day | GPU-hours/year (×365) | Monthly (usage-based) | Annual (usage-based) |
 |---|---|---|---|---|---|
-| RTX 4090 (×1) | $0.34 | $0.69 | ~$504 | ~$6,044 | Tight — consider 2× for safety margin |
-| RTX 4090 (×2, recommended) | — | $0.69 | ~$1,007 | ~$12,089 | Comfortable |
-| A100 80GB (×1) | $0.89 | $1.49 | ~$1,088 | ~$13,052 | Comfortable |
-| H100 SXM (×1) | — | $2.69–$3.29 | ~$1,964–$2,402 | ~$23,564–$28,820 | Very comfortable, room to grow |
+| RTX 4090 | $0.69 | 10.42 | 3,802 | ~$219 | ~$2,623 |
+| A100 SXM | $1.49 | 6.94 | 2,535 | ~$315 | ~$3,777 |
+| H100 SXM | $3.29 | 4.17 | 1,521 | ~$417 | ~$5,004 |
 
-Note: Spheron's H100 SXM on-demand rate (~$2.50/hr) is cheaper than RunPod's for this GPU — worth comparing providers per-GPU rather than assuming one provider is cheapest across the board.
+### Comparison — 24/7 dedicated vs. pay-per-use
 
-### Pay-per-token API alternative
+| GPU | 24/7 dedicated (always-on) | Pay-per-use (usage only) | Savings |
+|---|---|---|---|
+| RTX 4090 | ~$6,044/yr | ~$2,623/yr | ~57% cheaper |
+| A100 SXM | ~$13,052/yr | ~$3,777/yr | ~71% cheaper |
+| H100 SXM | ~$28,820/yr | ~$5,004/yr | ~83% cheaper |
 
-```
-2,304M tokens/month × ~$1.74/M tokens ≈ $4,009/month ≈ $48,100/year
-```
+**Takeaway:** paying only for GPU-seconds actually consumed cuts cost by 57–83% versus renting a GPU around the clock. Under pay-per-use billing, H100 becomes the cheapest option in absolute terms despite its higher hourly rate, since it clears the workload fastest and racks up the fewest billed hours.
 
-### Comparison
+**Caveat:** this assumes pure usage-based billing with no idle/cold-start overhead and no concurrency penalty. In practice, serverless workers are typically kept "warm" for a short idle window after each request to avoid cold-start latency, which adds some billed time beyond pure compute-seconds — actual cost will land somewhere between this estimate and the 24/7 dedicated figure. If many of the 1,000 users hit the service concurrently rather than spread across the day, you may also need ≥2 workers during peak hours regardless of billing model.
 
-| Option | Annual cost |
-|---|---|
-| Pay-per-token API | ~$48,100 |
-| Dedicated H100 SXM (24/7, RunPod) | ~$23,564–$28,820 |
-| Dedicated A100 (24/7, RunPod) | ~$13,052 |
-| Dedicated 2× RTX 4090 (24/7, RunPod) | ~$12,089 |
-
-**Takeaway:** with long outputs (2,500 tokens/response), API billing scales linearly with volume and becomes expensive fast — self-hosting wins by 2–4×. A100 on RunPod Secure Cloud is the best value of the options checked, beating both H100 (overkill, pricier here) and a single RTX 4090 (tight on headroom).
+**Open item:** the previously-used "$1.74/M tokens" third-party API figure (Together AI) could not be verified — Together AI's page shows no serverless per-token pricing for this model (it requires a Dedicated Endpoint), and Qwen's own official API prices at $0.05/M input + $0.20/M output, ~9x cheaper. That comparison has been removed pending a properly verified pay-per-token benchmark.
 
 ### Why this matters relative to training cost
 
