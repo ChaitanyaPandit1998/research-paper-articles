@@ -1,4 +1,8 @@
-# LLM Training Cost Estimation — Notes
+# LLM Cost Estimation — Notes
+
+---
+
+# Part 1 — Training Cost
 
 ## Worked example: custom 8B model, 500B tokens, 16× H100 SXM cluster
 
@@ -57,9 +61,7 @@ No real run hits 100% of peak (communication overhead, non-matmul ops, data load
 
 So ~$76K is just the pretraining compute; real end-to-end project cost would run higher.
 
----
-
-## Reference formulas
+### Reference formulas
 
 ```
 Training FLOPs ≈ 6 × N × D          (N = params, D = training tokens)
@@ -72,7 +74,9 @@ Cost = Time (hours) × cluster $/hour
 
 ---
 
-## Inference serving cost: custom 8B model, 1,000 users
+# Part 2 — Inference Cost
+
+## Worked example: custom 8B model, 1,000 users
 
 Training is a one-time cost; serving the model afterward is a recurring cost — this section sizes that recurring cost separately.
 
