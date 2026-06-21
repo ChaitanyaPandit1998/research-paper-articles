@@ -199,6 +199,48 @@ Every reference to `past_key_values` across this model boils down to one mechani
 
 ---
 
+## Shared Infrastructure (Used by LLaMA, Not Specific to It)
+
+The two pieces below — `create_causal_mask` and `GenerationMixin` — are called directly from `LlamaModel.forward` and `LlamaForCausalLM`, but the actual logic lives in generic, model-agnostic files (`masking_utils.py`, `generation/utils.py`) shared by virtually every decoder-only model in `transformers`. Worth understanding since they're load-bearing for how LLaMA actually runs, even though there's nothing LLaMA-specific about them.
+
+### `create_causal_mask` — sliding-window support and merging with padding
+
+`LlamaModel.forward` calls this once per forward pass:
+```python
+causal_mask = create_causal_mask(
+    config=self.config, inputs_embeds=inputs_embeds, attention_mask=attention_mask,
+    past_key_values=past_key_values, position_ids=position_ids,
+)
+```
+
+**The core mask is built from small boolean "mask functions"**, not a hand-rolled triangular matrix. `causal_mask_function(batch_idx, head_idx, q_idx, kv_idx) → kv_idx <= q_idx` is the base rule ("a query position can see any key position at or before it"). These functions get composed:
+
+- **`and_masks(*fns)` / `or_masks(*fns)`** — combine multiple boolean mask functions via intersection/union. This is the general mechanism, not special-cased per feature.
+- **Sliding window**: `sliding_window_overlay(window)` returns `kv_idx > q_idx - window` (i.e. "not too far in the past"); `sliding_window_causal_mask_function` is just `and_masks(sliding_window_overlay(window), causal_mask_function)` — causal *and* within the window. Plain LLaMA doesn't use this (no `sliding_window` in `LlamaConfig`), but it's the same mask-building machinery models like Mistral's local-attention layers plug into.
+- **Padding mask merge**: `padding_mask_function(padding_mask)` turns the 2D `[batch, seq]` boolean attention mask (`True` = real token, `False` = padding) into the same 4-argument signature (`padding_mask[batch_idx, kv_idx]`), so it composes via `and_masks` with the causal rule exactly like the sliding-window overlay does — padding is just another overlay, not a separate code path.
+
+**Why this matters for LLaMA specifically:** `LlamaAttention` only ever sees the *final* materialized mask tensor (or `BlockMask` for FlexAttention) — it never expresses sliding-window/padding logic itself. If a future LLaMA-family model variant needed sliding window attention, it would only need to set the right field in its config and point at this same machinery; no change to `LlamaAttention`'s forward signature.
+
+**Backend-aware shortcuts:** `_ignore_causal_mask_sdpa` checks whether the mask can be skipped entirely and replaced with SDPA's own `is_causal=True` flag (cheaper — lets PyTorch dispatch straight to a flash-attention-style kernel instead of materializing and adding an explicit mask tensor). This is only safe when there's no padding and the query/kv lengths align in specific ways (e.g. decoding one token at a time, or a full unpadded prefill) — `create_causal_mask` checks these conditions and returns `None` (meaning "use the implicit causal flag") rather than an actual tensor whenever it can.
+
+**KV-cache interaction:** `_preprocess_mask_arguments` pulls `kv_length`/`kv_offset` from `past_key_values.get_mask_sizes(...)` when a cache is present — this is how the mask correctly accounts for already-cached tokens (see the KV Cache section above) without the mask-building code needing to know anything about `DynamicCache` internals itself.
+
+### `GenerationMixin` — `.generate()` and sampling strategies
+
+`LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin)` — the second base class is what gives every LLaMA causal-LM instance its `.generate(...)` method; `LlamaForCausalLM.forward` itself only computes one step's logits, it has no loop. `GenerationMixin.generate()` is the actual decoding loop, and it dispatches to one of several internal strategies based on the `GenerationConfig` passed in (or the model's default):
+
+| Strategy | Internal method | What it does |
+|---|---|---|
+| Greedy | `_sample` (with `do_sample=False`) | Always picks the single highest-probability next token |
+| Sampling | `_sample` (with `do_sample=True`) | Draws from the next-token distribution, shaped by `temperature` (flattens/sharpens the distribution), `top_k` (restrict to k most likely tokens), `top_p`/nucleus (restrict to the smallest set of tokens whose cumulative probability ≥ p) |
+| Beam search | `_beam_search` | Tracks `num_beams` candidate sequences in parallel, expanding and pruning by cumulative log-probability, rather than committing to one token at a time |
+
+**Why this is generic, not LLaMA-specific:** every strategy above operates purely on the `logits` tensor `LlamaForCausalLM.forward` returns plus whatever `past_key_values` cache it returns — `GenerationMixin` doesn't know or care that the underlying model is LLaMA. The loop is: call `forward()` for the new token(s), pick/sample the next token id(s) from the returned logits, append to the sequence, feed the cache + new token back in next iteration, repeat until `eos_token_id` or `max_length`. This is exactly why the KV cache and `logits_to_keep` machinery documented earlier exist — they're the hooks `GenerationMixin`'s loop relies on to avoid redoing work every step.
+
+**The one place LLaMA *does* customize generation behavior:** indirectly, through config — `eos_token_id`, `pad_token_id`, `max_position_embeddings` (generation stops or needs RoPE-scaling intervention once a sequence approaches this) are all read by `GenerationMixin` from `LlamaConfig`, but the generation *algorithm* itself is untouched.
+
+---
+
 ## RoPE (Rotary Position Embeddings) — How It's Applied
 
 1. **`LlamaRotaryEmbedding.__init__`** — precomputes `inv_freq`, a vector of `head_dim / 2` inverse frequencies, geometrically spaced based on `rope_theta` (the RoPE base, e.g. `10000.0`). Different RoPE *scaling* strategies (linear, dynamic NTK, YaRN, etc.) are selected via `config.rope_parameters["rope_type"]` and looked up in `ROPE_INIT_FUNCTIONS`.

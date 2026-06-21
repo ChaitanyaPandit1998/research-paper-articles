@@ -293,6 +293,53 @@ Public API surface for lazy-loading (see `../gemma/INIT_PY_EXPLAINED.md`). Note 
 
 ---
 
+## Module Hierarchy — How the Classes Actually Nest
+
+```
+LlamaForCausalLM                              ← top-level, public API, one instance per checkpoint
+│
+├── self.model: LlamaModel                    ← backbone, embeddings → layers → final norm
+│   │
+│   ├── self.embed_tokens: nn.Embedding        (plain lookup, no scaling — unlike Gemma)
+│   │
+│   ├── self.rotary_emb: LlamaRotaryEmbedding   (ONE shared instance — computes cos/sin
+│   │   │                                        once per forward, reused by every layer below)
+│   │   └── uses: compute_default_rope_parameters / ROPE_INIT_FUNCTIONS[rope_type]
+│   │
+│   ├── self.layers: nn.ModuleList[LlamaDecoderLayer]  × num_hidden_layers   (e.g. 32 for 7B)
+│   │   │
+│   │   └── LlamaDecoderLayer                  ← repeated once per layer, each with its OWN weights
+│   │       │
+│   │       ├── self.input_layernorm: LlamaRMSNorm        (pre-norm, before attention)
+│   │       │
+│   │       ├── self.self_attn: LlamaAttention            (one instance per layer)
+│   │       │   ├── q_proj / k_proj / v_proj / o_proj: nn.Linear
+│   │       │   ├── apply_rotary_pos_emb(q, k, cos, sin)  → uses rotate_half()
+│   │       │   ├── repeat_kv(k, v, n_rep)                → GQA broadcast (eager path only)
+│   │       │   └── attention_interface(...)             → eager_attention_forward /
+│   │       │                                                sdpa / flash_attention_2 / flex
+│   │       │                                                (picked via ALL_ATTENTION_FUNCTIONS)
+│   │       │
+│   │       ├── self.post_attention_layernorm: LlamaRMSNorm  (pre-norm, before MLP)
+│   │       │
+│   │       └── self.mlp: LlamaMLP             (one instance per layer)
+│   │           ├── gate_proj / up_proj: nn.Linear  (hidden → intermediate)
+│   │           ├── act_fn: SiLU
+│   │           └── down_proj: nn.Linear            (intermediate → hidden)
+│   │
+│   └── self.norm: LlamaRMSNorm                 (ONE final norm, after the last layer)
+│
+└── self.lm_head: nn.Linear                     (hidden → vocab_size logits;
+                                                  SEPARATE matrix from embed_tokens
+                                                  since tie_word_embeddings=False by default)
+```
+
+**Reading this top-to-bottom is reading a forward pass**: `LlamaForCausalLM` calls `self.model(...)`, which embeds tokens, computes RoPE's cos/sin *once*, then loops `input_ids → embed_tokens → [LlamaDecoderLayer × N, each: input_layernorm → self_attn → +residual → post_attention_layernorm → mlp → +residual] → norm → hidden_states`, and finally `LlamaForCausalLM` projects that through `lm_head` to get logits.
+
+**Cardinality is the thing to notice:** `embed_tokens`, `rotary_emb`, `norm`, and `lm_head` each exist exactly **once** in the whole model — but `LlamaDecoderLayer` (and therefore `LlamaAttention`, `LlamaMLP`, and both `LlamaRMSNorm`s inside it) exists **once per layer** (32× for a 7B model, each with independently-trained weights). This is exactly the distinction in the "LlamaAttention vs LlamaForCausalLM" question from earlier — `LlamaAttention` is one of many repeated leaf modules; `LlamaForCausalLM` is the single root that owns all of them.
+
+---
+
 ## Summary Table — What's Distinctive About LLaMA's Implementation
 
 | Class | Key design choice |
