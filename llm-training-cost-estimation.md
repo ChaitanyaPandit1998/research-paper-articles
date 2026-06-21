@@ -111,12 +111,14 @@ A single RTX 4090 is tight if traffic concentrates into business hours rather th
 
 RunPod has two tiers: **Community Cloud** (cheaper, instances can be preempted/reclaimed at any time — not suitable for live production traffic) and **Secure Cloud** (reliable, enterprise-grade — used below).
 
-| GPU | Community Cloud $/hr | Secure Cloud $/hr (used for estimate) | Monthly (24/7) | Annual | Headroom |
+Monthly uses 730 hours (365×24/12, the standard average-month convention) and annual uses 8,760 hours (24×365), so the two columns are internally consistent — not monthly×12, which understates the year by ~5 days' worth of runtime.
+
+| GPU | Community Cloud $/hr | Secure Cloud $/hr (used for estimate) | Monthly (730 hrs) | Annual (8,760 hrs) | Headroom |
 |---|---|---|---|---|---|
-| RTX 4090 (×1) | $0.34 | $0.69 | ~$497 | ~$5,964 | Tight — consider 2× for safety margin |
-| RTX 4090 (×2, recommended) | — | $0.69 | ~$994 | ~$11,927 | Comfortable |
-| A100 80GB (×1) | $0.89 | $1.49 | ~$1,073 | ~$12,876 | Comfortable |
-| H100 SXM (×1) | — | $2.69–$3.29 | ~$1,937–$2,369 | ~$23,245–$28,427 | Very comfortable, room to grow |
+| RTX 4090 (×1) | $0.34 | $0.69 | ~$504 | ~$6,044 | Tight — consider 2× for safety margin |
+| RTX 4090 (×2, recommended) | — | $0.69 | ~$1,007 | ~$12,089 | Comfortable |
+| A100 80GB (×1) | $0.89 | $1.49 | ~$1,088 | ~$13,052 | Comfortable |
+| H100 SXM (×1) | — | $2.69–$3.29 | ~$1,964–$2,402 | ~$23,564–$28,820 | Very comfortable, room to grow |
 
 Note: Spheron's H100 SXM on-demand rate (~$2.50/hr) is cheaper than RunPod's for this GPU — worth comparing providers per-GPU rather than assuming one provider is cheapest across the board.
 
@@ -131,9 +133,9 @@ Note: Spheron's H100 SXM on-demand rate (~$2.50/hr) is cheaper than RunPod's for
 | Option | Annual cost |
 |---|---|
 | Pay-per-token API | ~$48,100 |
-| Dedicated H100 SXM (24/7, RunPod) | ~$23,200–$28,400 |
-| Dedicated A100 (24/7, RunPod) | ~$12,876 |
-| Dedicated 2× RTX 4090 (24/7, RunPod) | ~$11,927 |
+| Dedicated H100 SXM (24/7, RunPod) | ~$23,564–$28,820 |
+| Dedicated A100 (24/7, RunPod) | ~$13,052 |
+| Dedicated 2× RTX 4090 (24/7, RunPod) | ~$12,089 |
 
 **Takeaway:** with long outputs (2,500 tokens/response), API billing scales linearly with volume and becomes expensive fast — self-hosting wins by 2–4×. A100 on RunPod Secure Cloud is the best value of the options checked, beating both H100 (overkill, pricier here) and a single RTX 4090 (tight on headroom).
 
