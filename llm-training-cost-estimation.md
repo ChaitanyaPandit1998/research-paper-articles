@@ -156,8 +156,6 @@ Instead of renting a GPU 24/7, this model assumes RunPod's pay-per-use/Serverles
 
 **Caveat:** this assumes pure usage-based billing with no idle/cold-start overhead and no concurrency penalty. In practice, serverless workers are typically kept "warm" for a short idle window after each request to avoid cold-start latency, which adds some billed time beyond pure compute-seconds — actual cost will land somewhere between this estimate and the 24/7 dedicated figure. If many of the 1,000 users hit the service concurrently rather than spread across the day, you may also need ≥2 workers during peak hours regardless of billing model.
 
-**Open item:** the previously-used "$1.74/M tokens" third-party API figure (Together AI) could not be verified — Together AI's page shows no serverless per-token pricing for this model (it requires a Dedicated Endpoint), and Qwen's own official API prices at $0.05/M input + $0.20/M output, ~9x cheaper. That comparison has been removed pending a properly verified pay-per-token benchmark.
-
 ### Recurring vs. one-time cost — RunPod rental vs. buying hardware
 
 All GPU cost figures above (24/7 dedicated and pay-per-use) are **recurring (OpEx)** — RunPod rental is billed continuously for as long as the instance runs; there's no point where it's "paid off."
@@ -165,9 +163,19 @@ All GPU cost figures above (24/7 dedicated and pay-per-use) are **recurring (OpE
 | Model | Cost type | Notes |
 |---|---|---|
 | Renting (RunPod) | Recurring (OpEx) | Modeled above — ongoing bill, every month |
-| Buying hardware outright | One-time (CapEx) + small recurring | ~$1,800–$2,000/card for RTX 4090, ~$25,000–$30,000 for H100, retail — plus ongoing electricity/hosting, much smaller than rental rates |
+| Buying hardware outright | One-time (CapEx) + small recurring | Retail (2026): RTX 4090 ~$2,600, A100 80GB ~$11,500, H100 SXM ~$35,000 — plus electricity (~$0.15/kWh, 24/7), much smaller than rental rates |
 
-Buying breaks even against renting once cumulative rental cost surpasses the hardware price (e.g., an RTX 4090 at $0.69/hr 24/7 pays for itself in ~2,600–2,900 hours, or ~4 months of always-on use).
+### 5-year total cost: buy vs. 24/7 rental vs. pay-per-use
+
+Assumes hardware bought once, electricity at ~$0.15/kWh 24/7 (RTX 4090 450W, A100 400W, H100 700W TDP).
+
+| GPU | Buy outright (HW + 5yr electricity) | 5yr rental (24/7) | 5yr pay-per-use | Cheapest option |
+|---|---|---|---|---|
+| RTX 4090 | ~$5,557 | ~$30,220 | ~$13,115 | **Buy** (5.4× cheaper than 24/7 rental) |
+| A100 SXM | ~$14,128 | ~$65,260 | ~$18,885 | **Buy** (4.6× cheaper than 24/7 rental) |
+| H100 SXM | ~$39,600 | ~$144,100 | ~$25,020 | **Pay-per-use** — H100 is only ~17% utilized at this workload, so its high purchase price doesn't pay back fast enough to beat usage-based billing |
+
+**Takeaway:** buying wins decisively over 24/7 rental at every GPU tier (4.6–5.4× cheaper over 5 years) — 24/7 rental is the worst option whenever utilization is well below 100%, which it is here for all three GPUs. Between buying and pay-per-use specifically, buying wins for RTX 4090 and A100 (high relative utilization, ~30–43%, makes ownership pay off), but **pay-per-use wins for H100** because its purchase price is too high to justify against only ~17% utilization — the breakeven point depends on utilization, not just hardware cost.
 
 ### Why this matters relative to training cost
 
