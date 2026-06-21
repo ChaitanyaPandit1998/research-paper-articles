@@ -144,7 +144,7 @@ Instead of renting a GPU 24/7, this model assumes RunPod's pay-per-use/Serverles
 | A100 SXM | $1.49 | 6.94 | 2,535 | ~$315 | ~$3,777 |
 | H100 SXM | $3.29 | 4.17 | 1,521 | ~$417 | ~$5,004 |
 
-### Comparison — 24/7 dedicated vs. pay-per-use
+### Comparison — 24/7 dedicated vs. pay-per-use (1-year basis)
 
 | GPU | 24/7 dedicated (always-on) | Pay-per-use (usage only) | Savings |
 |---|---|---|---|
