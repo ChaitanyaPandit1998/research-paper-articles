@@ -141,7 +141,4 @@ Note: Spheron's H100 SXM on-demand rate (~$2.50/hr) is cheaper than RunPod's for
 
 ### Why this matters relative to training cost
 
-Training (~$76K) is a one-time cost; inference (~$12K–$48K/year depending on hosting choice) is recurring. Over a multi-year deployment, or as user count grows, cumulative inference cost can equal or exceed the original training spend — this is the same dynamic that justifies "overtraining" a smaller model in the first place (see Chinchilla discussion): paying more upfront in training to keep the permanent per-query cost low.
-
-## See also
-- [[modular_gemma_notes]] / `gemma/NOTES.md` — multi-GPU parallelism (TP/PP) mechanics, relevant to how a cluster like the one above would actually be split across GPUs for an 8B run.
+Training (~$76K) is a one-time cost; inference (~$12,089–$48,100/year depending on hosting choice) is recurring. Over a multi-year deployment, or as user count grows, cumulative inference cost can equal or exceed the original training spend — this is the same dynamic that justifies "overtraining" a smaller model in the first place (see Chinchilla discussion): paying more upfront in training to keep the permanent per-query cost low.
