@@ -180,6 +180,25 @@ inv_freq, self.attention_scaling = rope_init_fn(self.config, device)
 
 ---
 
+## KV Cache — `DynamicCache` and `past_key_values.update()`
+
+Every reference to `past_key_values` across this model boils down to one mechanism: avoid recomputing attention keys/values for tokens that were already processed in a previous forward call.
+
+**Without a cache:** generating token N+1 after already generating tokens `1..N` would require re-running the *entire* sequence `1..N` through every layer's `k_proj`/`v_proj` again, just to get back the same K/V vectors computed last step — wasted compute that grows quadratically over a generation.
+
+**With the cache:**
+1. **First call** (the prompt) — `use_cache=True` and no `past_key_values` passed in, so `LlamaModel.forward` creates a fresh `DynamicCache(config=self.config)`. The prompt runs through normally; inside each `LlamaAttention.forward`, `past_key_values.update(key_states, value_states, self.layer_idx)` stores that layer's K/V for every prompt position, keyed by `layer_idx` (each layer keeps its own independent cache — layer 0's keys are unrelated to layer 5's).
+2. **Subsequent calls** (one new token at a time) — the caller passes the same `past_key_values` object back in. `update()` **appends** the new token's K/V onto what's already stored for that layer and returns the **full concatenated** K/V (old + new) — that full tensor is what attention actually runs against, so the new token can still attend to everything before it.
+3. Only the **new** token's hidden state goes through `q_proj`/`k_proj`/`v_proj` on each subsequent call — `q` is computed only for the new position, but it attends against the *entire* cached `key_states`/`value_states` history. This is the actual compute saving: O(1) new work per step instead of O(seq_len).
+
+**Why position IDs need the cache's length:** `LlamaModel.forward` computes `position_ids` as `arange(new_tokens) + past_seen_tokens`, where `past_seen_tokens = past_key_values.get_seq_length()` — this is *why* the cache has to be threaded through, not just for K/V storage: it's also how the model knows token N+1 is at position N+1 and not position 0 again.
+
+**Why "Dynamic":** `DynamicCache` grows its underlying tensors on demand (concatenating new K/V onto the existing buffer each step) rather than pre-allocating a fixed-size buffer up front — simple and correct, though other cache implementations (e.g. a static, pre-allocated cache) trade that flexibility for being more `torch.compile`/CUDA-graph friendly, since a fixed buffer shape doesn't trigger recompilation as the sequence grows.
+
+**Tying it back to GQA:** the cache stores K/V at the *smaller* `num_key_value_heads` size (before `repeat_kv` broadcasts them up to match query heads at attention-compute time) — this is the actual mechanism by which GQA reduces memory: a smaller cache, not less compute work per se.
+
+---
+
 ## RoPE (Rotary Position Embeddings) — How It's Applied
 
 1. **`LlamaRotaryEmbedding.__init__`** — precomputes `inv_freq`, a vector of `head_dim / 2` inverse frequencies, geometrically spaced based on `rope_theta` (the RoPE base, e.g. `10000.0`). Different RoPE *scaling* strategies (linear, dynamic NTK, YaRN, etc.) are selected via `config.rope_parameters["rope_type"]` and looked up in `ROPE_INIT_FUNCTIONS`.
