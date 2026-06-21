@@ -111,6 +111,16 @@ Output tokens (autoregressive decode — the expensive part of inference) make u
 
 A single RTX 4090 is tight if traffic concentrates into business hours rather than spreading across 24h — A100/H100 have more headroom.
 
+### How many GPUs are actually needed (peak load, not daily average)
+
+| Traffic window | Peak tok/sec needed | RTX 4090 | A100 | H100 |
+|---|---|---|---|---|
+| Spread over 24h | 868 | 1 GPU (43% util) | 1 GPU (29% util) | 1 GPU (17% util) |
+| 12h business day | 1,736 | 1 GPU, 87% util — no margin | 1 GPU (58% util) | 1 GPU (35% util) |
+| 8h concentrated window | 2,604 | **2 GPUs needed** | 1 GPU (87% util) | 1 GPU (52% util) |
+
+**1–2 GPUs** depending on traffic concentration and GPU choice. Production services also need redundancy (no single point of failure) — so **2 GPUs is the realistic minimum** even where 1 clears the average load.
+
 ### Dedicated, always-on GPU cost — RunPod on-demand pricing (verified directly against runpod.io/pricing)
 
 Monthly uses 730 hours (365×24/12, the standard average-month convention) and annual uses 8,760 hours (24×365), so the two columns are internally consistent — not monthly×12, which understates the year by ~5 days' worth of runtime.
@@ -147,6 +157,17 @@ Instead of renting a GPU 24/7, this model assumes RunPod's pay-per-use/Serverles
 **Caveat:** this assumes pure usage-based billing with no idle/cold-start overhead and no concurrency penalty. In practice, serverless workers are typically kept "warm" for a short idle window after each request to avoid cold-start latency, which adds some billed time beyond pure compute-seconds — actual cost will land somewhere between this estimate and the 24/7 dedicated figure. If many of the 1,000 users hit the service concurrently rather than spread across the day, you may also need ≥2 workers during peak hours regardless of billing model.
 
 **Open item:** the previously-used "$1.74/M tokens" third-party API figure (Together AI) could not be verified — Together AI's page shows no serverless per-token pricing for this model (it requires a Dedicated Endpoint), and Qwen's own official API prices at $0.05/M input + $0.20/M output, ~9x cheaper. That comparison has been removed pending a properly verified pay-per-token benchmark.
+
+### Recurring vs. one-time cost — RunPod rental vs. buying hardware
+
+All GPU cost figures above (24/7 dedicated and pay-per-use) are **recurring (OpEx)** — RunPod rental is billed continuously for as long as the instance runs; there's no point where it's "paid off."
+
+| Model | Cost type | Notes |
+|---|---|---|
+| Renting (RunPod) | Recurring (OpEx) | Modeled above — ongoing bill, every month |
+| Buying hardware outright | One-time (CapEx) + small recurring | ~$1,800–$2,000/card for RTX 4090, ~$25,000–$30,000 for H100, retail — plus ongoing electricity/hosting, much smaller than rental rates |
+
+Buying breaks even against renting once cumulative rental cost surpasses the hardware price (e.g., an RTX 4090 at $0.69/hr 24/7 pays for itself in ~2,600–2,900 hours, or ~4 months of always-on use).
 
 ### Why this matters relative to training cost
 
