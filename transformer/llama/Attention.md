@@ -139,3 +139,37 @@ Swaps `heads` and `seqlen` axes back to `[batch, seqlen, heads, head_dim]` (the 
 return attn_output, attn_weights
 ```
 Returns the actual attention output (fed forward through the rest of the layer) and the raw attention weights (useful for visualization/analysis, e.g. `output_attentions=True`).
+
+## Merging heads back: `attn_output.reshape(*input_shape, -1).contiguous()`
+
+This runs back in `LlamaAttention.forward`, right after the chosen attention backend (eager/SDPA/FlashAttention-2) returns `attn_output`. It turns the per-head attention output back into the model's standard `[batch, seq_len, hidden_size]` shape.
+
+```python
+attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+```
+
+Going into this line, `attn_output` has shape `[batch, seq_len, num_heads, head_dim]` (heads were already moved back into this order by `.transpose(1, 2)` inside `eager_attention_forward`, Step 7 above). `input_shape` is `(batch, seq_len)`, captured earlier in `forward` from the original hidden-states input — so `*input_shape, -1` unpacks to `(batch, seq_len, -1)`, and the `-1` tells PyTorch to infer that last axis by flattening `[num_heads, head_dim]` into one axis of size `num_heads * head_dim == hidden_size`.
+
+### Concrete example
+
+Say `batch=1`, `seq_len=2` (2 tokens, e.g. "cat", "sat"), `num_heads=2`, `head_dim=2`, so `hidden_size = 2*2 = 4`.
+
+After attention, `attn_output` (shape `[1, 2, 2, 2]`) holds, for each token, 2 heads each producing a 2-number output:
+
+```
+attn_output =
+  token "cat":  head0 = [1, 2]    head1 = [3, 4]
+  token "sat":  head0 = [5, 6]    head1 = [7, 8]
+```
+
+`attn_output.reshape(1, 2, -1)` flattens the last two axes (`num_heads, head_dim` → `2*2=4`) while keeping `batch` and `seq_len` untouched. For "cat", `head0=[1,2]` and `head1=[3,4]` concatenate into one flat vector `[1,2,3,4]`. Same for "sat" → `[5,6,7,8]`.
+
+Result, shape `[1, 2, 4]`:
+```
+[[ [1,2,3,4],     # "cat" — single hidden_size=4 vector
+   [5,6,7,8] ]]   # "sat" — single hidden_size=4 vector
+```
+
+Each token went from "2 heads × 2 numbers each" to "1 vector of 4 numbers" — exactly `hidden_size`. This undoes the head-splitting done earlier when `hidden_size` was split into `num_heads × head_dim` for the Q/K/V projections.
+
+**Why `.contiguous()` after:** the reshape here forces a real data copy (heads/head_dim aren't the last contiguous memory block after the earlier `.transpose`), and `.contiguous()` guarantees the result is laid out contiguously in memory — required because the very next step (`self.o_proj(attn_output)`, a linear layer) needs contiguous memory for an efficient matmul.
