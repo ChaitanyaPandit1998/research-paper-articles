@@ -38,6 +38,53 @@ So: `__init__` sets up *constants* (`inv_freq`), `forward` turns those constants
   This is exactly `[x*cosθ - y*sinθ, y*cosθ + x*sinθ]` for each (x, y) dimension pair, i.e. rotating the embedding vector by angle `θ = position * inv_freq`.
 - Same rotation applied to both `q` and `k`. Because rotation is applied identically to both, the dot product `q·k` in attention ends up depending only on the *relative* position `(pos_q - pos_k)`, not absolute position — that's RoPE's key property.
 
+## `rotate_half` and `apply_rotary_pos_emb` — full code walkthrough
+
+```python
+def rotate_half(x):
+    """Rotates half the hidden dims of the input."""
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2 :]
+    return torch.cat((-x2, x1), dim=-1)
+```
+
+- `x.shape[-1]` is `head_dim` (e.g. 8 in the worked example). `x.shape[-1] // 2` is the midpoint (4).
+- `x1` = first half of the last dimension (the "x" half of every pair, in split-half layout).
+- `x2` = second half (the "y" half of every pair).
+- `torch.cat((-x2, x1), dim=-1)` builds: negated second half first, then the original first half — i.e. `[-y0,-y1,-y2,-y3, x0,x1,x2,x3]`.
+- `...` (ellipsis) means "keep whatever leading dimensions exist (batch, heads, seq_len), only slice the last one" — so this works regardless of tensor rank, as long as `head_dim` is the last axis.
+
+```python
+@use_kernel_func_from_hub("rotary_pos_emb")
+def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
+    cos = cos.unsqueeze(unsqueeze_dim)
+    sin = sin.unsqueeze(unsqueeze_dim)
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    return q_embed, k_embed
+```
+
+**The decorator** `@use_kernel_func_from_hub("rotary_pos_emb")` lets this function be transparently swapped for a faster, hand-written CUDA/Triton kernel pulled from the Hub when available for the current hardware/dtype, falling back to this pure-PyTorch implementation otherwise. It's purely a performance hook — the math is unchanged.
+
+**Why `unsqueeze_dim` is needed (the shape problem):**
+
+`cos`/`sin` come out of `LlamaRotaryEmbedding.forward` with shape `[batch, seq_len, head_dim]` — they don't know about "heads" because the same rotation angle applies identically to every head (heads don't have separate positions). But `q`/`k` have shape `[batch, heads, seq_len, head_dim]` — there's an extra "heads" axis in the middle.
+
+To compute `q * cos` elementwise, the shapes must broadcast, and `[batch, seq_len, head_dim]` doesn't line up against `[batch, heads, seq_len, head_dim]` positionally. So:
+
+```python
+cos = cos.unsqueeze(unsqueeze_dim)   # [batch, seq_len, head_dim] → [batch, 1, seq_len, head_dim]
+```
+
+With `unsqueeze_dim=1`, a size-1 axis is inserted at position 1. Now `cos` is `[batch, 1, seq_len, head_dim]`, which broadcasts cleanly against `q`'s `[batch, heads, seq_len, head_dim]` — the size-1 "heads" axis is automatically repeated across all real heads. (If `q`/`k` instead use the layout `[batch, seq_len, heads, head_dim]`, pass `unsqueeze_dim=2` so the inserted axis lands in the right spot.)
+
+**The rotation itself**, applied identically to both tensors:
+```python
+q_embed = (q * cos) + (rotate_half(q) * sin)
+k_embed = (k * cos) + (rotate_half(k) * sin)
+```
+This is the elementwise rotation formula derived in the worked example above. Both `q` and `k` must be rotated — that's the entire point of RoPE: rotating both with the same angle-per-position scheme makes their later dot product (`q_embed @ k_embed.T` in attention) depend only on relative position, not absolute position. The returned `(q_embed, k_embed)` flow straight into `softmax(q_embed @ k_embed.T / sqrt(d)) @ v`.
+
 ## The call chain in a real forward pass
 
 ```
