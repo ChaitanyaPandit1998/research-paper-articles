@@ -68,29 +68,36 @@ LlamaRotaryEmbedding (nn.Module)                         ← created once, lives
 │   └── register_buffer("original_inv_freq", inv_freq.clone())  ← pristine copy for dynamic RoPE
 │
 ├── compute_default_rope_parameters(config, device, seq_len)   [staticmethod — the math]
-│   ├── reads base = rope_theta, dim = head_dim
-│   ├── inv_freq[i] = 1 / theta^(2i/dim)
+│   ├── reads base = rope_theta, dim = head_dim                     e.g. base=10000, dim=8
+│   ├── inv_freq[i] = 1 / theta^(2i/dim)               for i=0..3 → [1.0, 0.1, 0.01, 0.001]  ← θ₀..θ₃
 │   └── returns (inv_freq, attention_factor=1.0)
 │
 └── forward(x, position_ids)                               ← called once per model forward pass
-    ├── inv_freq_expanded  = inv_freq reshaped to [batch, dim/2, 1]
-    ├── position_ids_expanded = position_ids reshaped to [batch, 1, seq_len]
+    │                                                          e.g. position_ids = [0,1,2,3,4,5]  ("The cat sat on the mat")
+    ├── inv_freq_expanded  = inv_freq reshaped to [batch, dim/2, 1]        → [1.0, 0.1, 0.01, 0.001] per batch
+    ├── position_ids_expanded = position_ids reshaped to [batch, 1, seq_len]  → [0,1,2,3,4,5]
     ├── freqs = inv_freq_expanded @ position_ids_expanded   (matmul → [batch, seq_len, dim/2])
+    │     └── outer product = angle table: freqs[pos] = position × θᵢ
+    │           "cat" (pos=1) → [1.0, 0.1, 0.01, 0.001]
+    │           "mat" (pos=5) → [5.0, 0.5, 0.05, 0.005]
     ├── emb = cat(freqs, freqs)                              (doubled to full head_dim)
-    ├── cos = emb.cos() * attention_scaling
-    ├── sin = emb.sin() * attention_scaling
-    └── returns (cos, sin)                                   ← shared across all layers
+    │     └── "cat" → [1.0,0.1,0.01,0.001, 1.0,0.1,0.01,0.001]   (8 dims, duplicated halves)
+    ├── cos = emb.cos() * attention_scaling                  e.g. cos("cat") = [0.540,0.995,0.9999,1.0, 0.540,0.995,0.9999,1.0]
+    ├── sin = emb.sin() * attention_scaling                  e.g. sin("cat") = [0.841,0.0998,0.0100,0.001, 0.841,0.0998,0.0100,0.001]
+    └── returns (cos, sin)                                   ← shared across all layers, one row per word
 
 rotate_half(x)                                             ← standalone helper function
-    ├── x1 = first half of x
-    ├── x2 = second half of x
-    └── returns cat(-x2, x1)                                 (90° rotation trick)
+    ├── x1 = first half of x                                e.g. "cat" split-half q = [0.4,0.2,0.3,0.7 | 0.6,0.8,0.5,0.1]
+    ├── x2 = second half of x                                       x1=[0.4,0.2,0.3,0.7], x2=[0.6,0.8,0.5,0.1]
+    └── returns cat(-x2, x1)                                 (90° rotation trick) → [-0.6,-0.8,-0.5,-0.1, 0.4,0.2,0.3,0.7]
 
 apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim)         ← standalone function, called per attention layer
     ├── cos, sin  ← unsqueeze to broadcast over the heads dimension
     ├── q_embed = q * cos + rotate_half(q) * sin             (uses rotate_half)
+    │     └── "cat" dim0: 0.4·cos(1.0) + (−0.6)·sin(1.0) = −0.289   (matches hand-computed Pair 0 x_new)
     ├── k_embed = k * cos + rotate_half(k) * sin             (uses rotate_half)
     └── returns (q_embed, k_embed)                           ← fed into attention's softmax(QK^T)
+          └── q_embed("cat") · k_embed("mat") ≈ cos(gap × θᵢ) summed over pairs → encodes "4 positions apart", not absolute position
 ```
 
 ### Ownership / call hierarchy across the model
