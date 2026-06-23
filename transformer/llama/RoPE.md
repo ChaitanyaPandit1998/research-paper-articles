@@ -111,3 +111,90 @@ LlamaModel
 ```
 
 **Key takeaway on hierarchy:** `LlamaRotaryEmbedding` is instantiated once per model and computes `cos`/`sin` once per forward pass; `apply_rotary_pos_emb` + `rotate_half` are stateless functions called independently inside *every* attention layer, reusing the same `cos`/`sin` but rotating that layer's own `q`/`k` tensors.
+
+## Worked numeric example: mapping the code to actual numbers
+
+Setup: sentence `"The cat sat on the mat"` at positions `0..5`, `dim = 8` (so 4 frequency pairs), `theta = 10000`.
+
+### Stage 1 → `compute_default_rope_parameters`
+
+```python
+inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2) / dim))
+```
+
+`torch.arange(0, 8, 2) = [0, 2, 4, 6]`, divided by `dim=8` gives `[0, 0.25, 0.5, 0.75]`:
+
+```
+inv_freq = 1/10000^[0, 0.25, 0.5, 0.75] = [1.0, 0.1, 0.01, 0.001]
+```
+
+These are the θᵢ values — early indices (θ₀=1.0) rotate fast (local detail), later indices (θ₃=0.001) rotate slowly (long-range structure). Computed once in `__init__`, stored as `self.inv_freq`.
+
+### Stage 2 → `forward`'s matmul
+
+```python
+inv_freq_expanded      # [1, 4, 1]  → [1.0, 0.1, 0.01, 0.001] per batch
+position_ids_expanded  # [1, 1, 6] → [0,1,2,3,4,5]
+freqs = (inv_freq_expanded @ position_ids_expanded).transpose(1, 2)  # [1, 6, 4]
+```
+
+The matmul is an outer product of positions × frequencies — exactly the angle table:
+
+```
+freqs[0] (pos 0, "The") = [0, 0, 0, 0]
+freqs[1] (pos 1, "cat") = [1.0, 0.1, 0.01, 0.001]
+freqs[2] (pos 2, "sat") = [2.0, 0.2, 0.02, 0.002]
+freqs[5] (pos 5, "mat") = [5.0, 0.5, 0.05, 0.005]
+```
+
+After `transpose`, shape is `[batch, seq_len, dim/2] = [1, 6, 4]` — row = word, column = pair, matching the angle table directly.
+
+### Stage 2.5 → `emb = cat(freqs, freqs)`, then `cos`/`sin`
+
+```python
+emb = torch.cat((freqs, freqs), dim=-1)   # [1, 6, 4] → [1, 6, 8]
+cos = emb.cos()
+sin = emb.sin()
+```
+
+For "cat" (row 1): `freqs[1] = [1.0, 0.1, 0.01, 0.001]`, so `emb[1] = [1.0, 0.1, 0.01, 0.001, 1.0, 0.1, 0.01, 0.001]` — the 4 angles duplicated to fill all 8 dims. `cos[1]`/`sin[1]` then contain `cos(1.0)=0.5403`, `sin(1.0)=0.8415`, etc., repeated across both halves.
+
+### Stage 3/4 → `apply_rotary_pos_emb`
+
+Manual per-pair formula:
+```
+x_new = x·cos(α) − y·sin(α)
+y_new = x·sin(α) + y·cos(α)
+```
+
+Code's vectorized formula:
+```python
+q_embed = (q * cos) + (rotate_half(q) * sin)
+```
+
+These are the same operation applied to all 4 pairs at once. Note: real Llama code uses a *split-half* layout (`[x0,x1,x2,x3, y0,y1,y2,y3]`), not an interleaved one — `rotate_half` splits into first-half/second-half rather than alternating pairs, but the math is equivalent.
+
+"cat"'s embedding in split-half layout: `q = [0.4, 0.2, 0.3, 0.7, 0.6, 0.8, 0.5, 0.1]`.
+
+`rotate_half(q) = [-0.6, -0.8, -0.5, -0.1, 0.4, 0.2, 0.3, 0.7]`.
+
+Computing `q*cos + rotate_half(q)*sin` elementwise across all 8 dims reproduces each pair's rotation:
+
+- dim 0 (`x0`): `0.4·cos(1.0) + (−0.6)·sin(1.0) = 0.4·0.5403 − 0.6·0.8415 = −0.289`
+- dim 4 (`y0`): `0.6·cos(1.0) + 0.4·sin(1.0) = 0.6·0.5403 + 0.4·0.8415 = 0.661`
+
+Same pattern for dims 1/5, 2/6, 3/7. This is exactly why `cos`/`sin` had to be duplicated (`cat(freqs,freqs)`) in Stage 2.5 — dim `i` and its rotation partner `i+4` need the *same* angle, and the duplication guarantees `cos[0]==cos[4]`, `cos[1]==cos[5]`, etc.
+
+### Stage 5 → the dot product / attention
+
+This part isn't inside `apply_rotary_pos_emb` — it happens later in `LlamaAttention.forward` when it computes `q @ k.T`. The code never explicitly proves the identity `cos(A)cos(B)+sin(A)sin(B) = cos(B−A)`; it just relies on it being mathematically true. Rotating both `q` and `k` with this code, then dotting them, makes the attention score depend only on relative position (`gap × θᵢ`) — that's the payoff the code is engineered to deliver, even though the code itself only performs the rotation, not the proof.
+
+### Mapping summary
+
+| Walkthrough concept | Code |
+|---|---|
+| θᵢ values | `inv_freq` (from `compute_default_rope_parameters`) |
+| angle table (position × θ) | `freqs` (the matmul in `forward`) |
+| cos/sin per pair | `cos`, `sin` (after `emb = cat(freqs,freqs)`) |
+| rotate [x,y] by α | `q*cos + rotate_half(q)*sin` in `apply_rotary_pos_emb` |
+| dot product → cos(gap·θ) | happens later, in attention's `q @ k.T` |
