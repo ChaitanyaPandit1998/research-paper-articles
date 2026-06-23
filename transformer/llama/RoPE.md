@@ -192,6 +192,56 @@ Computing `q*cos + rotate_half(q)*sin` elementwise across all 8 dims reproduces 
 
 Same pattern for dims 1/5, 2/6, 3/7. This is exactly why `cos`/`sin` had to be duplicated (`cat(freqs,freqs)`) in Stage 2.5 — dim `i` and its rotation partner `i+4` need the *same* angle, and the duplication guarantees `cos[0]==cos[4]`, `cos[1]==cos[5]`, etc.
 
+#### How the manual formula and the vectorized formula relate
+
+The manual formula rotates **one 2D pair** `(x, y)` by angle `α`. The vectorized formula rotates **all pairs in the vector at once** by packing every pair's `x` into the first half and every pair's `y` into the second half, then doing one elementwise operation across the whole vector.
+
+Split-half layout, 4 pairs:
+
+```
+q = [x0, x1, x2, x3, | y0, y1, y2, y3]
+     └── first half ──┘ └── second half ──┘
+```
+
+`cos`/`sin` are duplicated across both halves (the `cat(freqs,freqs)` step), so:
+
+```
+cos = [cos(α0), cos(α1), cos(α2), cos(α3), cos(α0), cos(α1), cos(α2), cos(α3)]
+sin = [sin(α0), sin(α1), sin(α2), sin(α3), sin(α0), sin(α1), sin(α2), sin(α3)]
+```
+
+`rotate_half(q) = cat(-y0,-y1,-y2,-y3, x0,x1,x2,x3)` — second half negated and moved to front, first half moved to back.
+
+Computing `q*cos + rotate_half(q)*sin` elementwise, dimension by dimension:
+
+**Dimension 0** (the `x0` slot, paired with `y0`):
+```
+q[0]*cos[0] + rotate_half(q)[0]*sin[0]
+= x0·cos(α0) + (−y0)·sin(α0)
+= x0·cos(α0) − y0·sin(α0)
+```
+Exactly `x_new = x·cos(α) − y·sin(α)` for pair 0.
+
+**Dimension 4** (the `y0` slot, same pair):
+```
+q[4]*cos[4] + rotate_half(q)[4]*sin[4]
+= y0·cos(α0) + x0·sin(α0)
+= x0·sin(α0) + y0·cos(α0)
+```
+Exactly `y_new = x·sin(α) + y·cos(α)` for pair 0.
+
+The same pattern repeats independently for dims `1/5`, `2/6`, `3/7` — pairs 1, 2, 3, each with their own angle `α1, α2, α3`.
+
+| Manual (per-pair, scalar) | Vectorized (code, whole tensor) |
+|---|---|
+| `x` | `q[i]` (first-half slot) |
+| `y` | `q[i + dim/2]` (second-half slot, same pair) |
+| `−y·sin(α)` term | comes from `rotate_half(q)[i] = -y`, multiplied by `sin[i]` |
+| `+x·sin(α)` term | comes from `rotate_half(q)[i+dim/2] = x`, multiplied by `sin[i+dim/2]` |
+| one pair, one angle `α` | all pairs at once, because `cos`/`sin` hold every pair's angle and the duplication (`cat(freqs,freqs)`) lines each angle up with both halves of its pair |
+
+So `rotate_half` is the trick that lets `q*cos + rotate_half(q)*sin` apply the manual 2-line rotation formula to *every* pair simultaneously in a single elementwise multiply-add, instead of looping over pairs.
+
 ### Stage 5 → the dot product / attention
 
 This part isn't inside `apply_rotary_pos_emb` — it happens later in `LlamaAttention.forward` when it computes `q @ k.T`. The code never explicitly proves the identity `cos(A)cos(B)+sin(A)sin(B) = cos(B−A)`; it just relies on it being mathematically true. Rotating both `q` and `k` with this code, then dotting them, makes the attention score depend only on relative position (`gap × θᵢ`) — that's the payoff the code is engineered to deliver, even though the code itself only performs the rotation, not the proof.
