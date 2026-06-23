@@ -196,41 +196,88 @@ Same pattern for dims 1/5, 2/6, 3/7. This is exactly why `cos`/`sin` had to be d
 
 The manual formula rotates **one 2D pair** `(x, y)` by angle `α`. The vectorized formula rotates **all pairs in the vector at once** by packing every pair's `x` into the first half and every pair's `y` into the second half, then doing one elementwise operation across the whole vector.
 
-Split-half layout, 4 pairs:
+##### The starting point
+
+"cat" has an 8-number embedding, treated as 4 pairs `(x_i, y_i)`. Llama's layout puts all 4 `x`'s first, then all 4 `y`'s:
 
 ```
-q = [x0, x1, x2, x3, | y0, y1, y2, y3]
-     └── first half ──┘ └── second half ──┘
+q = [x0, x1, x2, x3,  y0, y1, y2, y3]
+   = [0.4, 0.2, 0.3, 0.7,  0.6, 0.8, 0.5, 0.1]
 ```
 
-`cos`/`sin` are duplicated across both halves (the `cat(freqs,freqs)` step), so:
+So `x0=0.4, y0=0.6` is pair 0, `x1=0.2, y1=0.8` is pair 1, etc.
+
+##### What we want to compute
+
+For each pair independently, rotate by its own angle — 8 small calculations total (2 per pair × 4 pairs):
 
 ```
-cos = [cos(α0), cos(α1), cos(α2), cos(α3), cos(α0), cos(α1), cos(α2), cos(α3)]
-sin = [sin(α0), sin(α1), sin(α2), sin(α3), sin(α0), sin(α1), sin(α2), sin(α3)]
+pair 0, angle α0=1.0:   x0_new = x0·cos(α0) − y0·sin(α0)
+                        y0_new = x0·sin(α0) + y0·cos(α0)
+... and so on for pairs 1, 2, 3
 ```
 
-`rotate_half(q) = cat(-y0,-y1,-y2,-y3, x0,x1,x2,x3)` — second half negated and moved to front, first half moved to back.
+The question is how one line, `q*cos + rotate_half(q)*sin`, computes all 8 at once.
 
-Computing `q*cos + rotate_half(q)*sin` elementwise, dimension by dimension:
+##### Building `rotate_half(q)`
 
-**Dimension 0** (the `x0` slot, paired with `y0`):
-```
-q[0]*cos[0] + rotate_half(q)[0]*sin[0]
-= x0·cos(α0) + (−y0)·sin(α0)
-= x0·cos(α0) − y0·sin(α0)
-```
-Exactly `x_new = x·cos(α) − y·sin(α)` for pair 0.
+`rotate_half` mechanically takes the second half, negates it, and swaps it to the front; the first half moves to the back:
 
-**Dimension 4** (the `y0` slot, same pair):
 ```
-q[4]*cos[4] + rotate_half(q)[4]*sin[4]
-= y0·cos(α0) + x0·sin(α0)
-= x0·sin(α0) + y0·cos(α0)
+q              = [x0, x1, x2, x3,  y0, y1, y2, y3]
+rotate_half(q) = [-y0, -y1, -y2, -y3,  x0, x1, x2, x3]
 ```
-Exactly `y_new = x·sin(α) + y·cos(α)` for pair 0.
 
-The same pattern repeats independently for dims `1/5`, `2/6`, `3/7` — pairs 1, 2, 3, each with their own angle `α1, α2, α3`.
+With numbers:
+```
+q              = [0.4, 0.2, 0.3, 0.7,  0.6, 0.8, 0.5, 0.1]
+rotate_half(q) = [-0.6, -0.8, -0.5, -0.1,  0.4, 0.2, 0.3, 0.7]
+```
+
+Position 0 of `rotate_half(q)` is `-y0` (negated partner from position 4). Position 4 is `x0` (copy from position 0). This swap is the entire trick.
+
+##### Building `cos` and `sin`
+
+Each pair has its own angle (`α0=1.0, α1=0.1, α2=0.01, α3=0.001`). Both `x_i` and `y_i` need the *same* angle, so `cos`/`sin` are built by duplicating the 4 angle values into 8 slots:
+
+```
+cos = [cos(α0), cos(α1), cos(α2), cos(α3),  cos(α0), cos(α1), cos(α2), cos(α3)]
+sin = [sin(α0), sin(α1), sin(α2), sin(α3),  sin(α0), sin(α1), sin(α2), sin(α3)]
+```
+
+So `cos[0] == cos[4]` (both `cos(α0)`), `cos[1] == cos[5]` (both `cos(α1)`), etc.
+
+##### Computing `q*cos + rotate_half(q)*sin` slot by slot
+
+This is 8 independent multiply-and-add operations, one per index. Index 0 and index 4 (pair 0's two slots):
+
+**Index 0:**
+```
+q[0]=x0, cos[0]=cos(α0), rotate_half(q)[0]=-y0, sin[0]=sin(α0)
+
+result[0] = x0·cos(α0) + (-y0)·sin(α0) = x0·cos(α0) − y0·sin(α0)
+```
+Identical to the manual `x_new = x·cos(α) − y·sin(α)`.
+Numbers: `0.4·0.5403 − 0.6·0.8415 = 0.2161 − 0.5049 = −0.289` ✓
+
+**Index 4:**
+```
+q[4]=y0, cos[4]=cos(α0) (same angle, thanks to duplication),
+rotate_half(q)[4]=x0 (where x0 got moved to), sin[4]=sin(α0)
+
+result[4] = y0·cos(α0) + x0·sin(α0) = x0·sin(α0) + y0·cos(α0)
+```
+Identical to the manual `y_new = x·sin(α) + y·cos(α)`.
+Numbers: `0.6·0.5403 + 0.4·0.8415 = 0.3242 + 0.3366 = 0.661` ✓
+
+##### Why it works — the one key insight
+
+`rotate_half` does two things simultaneously:
+
+1. **Negation**: puts `-y_i` where `x_i` used to be (paired with `sin`), giving the `−y·sin(α)` term needed for `x_new`.
+2. **Swap**: puts `x_i` where `y_i` used to be (paired with `sin` again), giving the `+x·sin(α)` term needed for `y_new`.
+
+Combined with `cos`/`sin` being duplicated so the *same angle* appears at both an `x` slot and its partner `y` slot, one elementwise multiply-add silently performs 4 independent 2D rotations — one per pair — in a single vectorized instruction, instead of looping over pairs. Indices `1/5`, `2/6`, `3/7` repeat this exact pattern for pairs 1, 2, 3 with their own angles `α1, α2, α3`.
 
 | Manual (per-pair, scalar) | Vectorized (code, whole tensor) |
 |---|---|
