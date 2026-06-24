@@ -12,6 +12,44 @@ This implements **Rotary Position Embeddings (RoPE)** — the mechanism Llama us
 - Calls that function once to get `inv_freq` (a vector of inverse frequencies) and `attention_scaling` (a scalar multiplier, usually `1.0` for default RoPE, different for scaled variants like YaRN).
 - Stores `inv_freq` as a buffer (not a learned parameter, but moves with `.to(device)`/`.to(dtype)` calls). `original_inv_freq` is kept as a pristine copy so dynamic RoPE variants can recompute from the same base later.
 
+#### How `rope_init_fn` is picked and called
+
+```python
+self.rope_type = self.config.rope_parameters["rope_type"]
+rope_init_fn: Callable = self.compute_default_rope_parameters
+if self.rope_type != "default":
+    rope_init_fn = ROPE_INIT_FUNCTIONS[self.rope_type]
+inv_freq, self.attention_scaling = rope_init_fn(self.config, device)
+```
+
+- **`rope_init_fn: Callable = self.compute_default_rope_parameters`** — `: Callable` is just a type hint (this variable will hold a function, not data). Assigning `self.compute_default_rope_parameters` with no parentheses stores a *reference* to the method itself, without calling it — calling it would require `()`. This sets the default choice: if nothing overrides it, the model uses the standard RoPE frequency computation.
+- **`if self.rope_type != "default": rope_init_fn = ROPE_INIT_FUNCTIONS[self.rope_type]`** — a "default, then override if needed" pattern. If `rope_type` is `"default"`, `rope_init_fn` stays as `compute_default_rope_parameters` and no lookup happens. If it's a scaling variant (`"linear"`, `"dynamic"`, `"yarn"`, etc. — used to extend context length beyond what the model was trained on), `rope_init_fn` is *reassigned* to the matching function pulled from the `ROPE_INIT_FUNCTIONS` registry dict.
+- **`inv_freq, self.attention_scaling = rope_init_fn(self.config, device)`** — whichever function ended up stored in `rope_init_fn`, it's now actually invoked (parentheses added) with `(self.config, device)`, returning the `inv_freq` tensor and `attention_scaling` factor.
+
+This is the same "pick-a-function-then-call-it-later" pattern used by `attention_interface = ALL_ATTENTION_FUNCTIONS.get_interface(...)` in `Attention.md` — store a function reference based on a config string, call it uniformly afterward regardless of which one was chosen.
+
+#### What `register_buffer` is for
+
+```python
+self.register_buffer("inv_freq", inv_freq, persistent=False)
+self.register_buffer("original_inv_freq", inv_freq.clone(), persistent=False)
+```
+
+`register_buffer` is an `nn.Module` method that registers a tensor as part of the module's state, **without** treating it as a learnable parameter. It's the middle ground between:
+
+- **`nn.Parameter`** — tracked, gets gradients, updated by the optimizer during training.
+- **A plain Python attribute** (`self.inv_freq = inv_freq`) — not tracked by PyTorch at all; won't move with `.to(device)`, won't appear in `.state_dict()`, won't get cast by `.half()`/`.float()`.
+- **A buffer** — tracked by PyTorch (moves with the module, appears in `state_dict` by default), but **not** trained — no gradients, never touched by the optimizer.
+
+**Why `inv_freq` needs to be a buffer, not a plain attribute or parameter:**
+- *Not a `Parameter`*: `inv_freq` is a fixed, deterministic function of `rope_theta` and `head_dim` (see `compute_default_rope_parameters` above). It should never be updated by gradient descent — RoPE's frequencies are a mathematical schedule, not something the model learns.
+- *Not a plain attribute*: if you just did `self.inv_freq = inv_freq`, calling `model.to("cuda")` or `model.half()` would move/cast every registered parameter and buffer — but `inv_freq` would be silently left behind on the CPU in float32, causing a device/dtype mismatch the next time `forward` uses it (`inv_freq_expanded.float() @ position_ids_expanded.float()`). Registering it as a buffer means `model.to(device)` / `model.to(dtype)` automatically carries `inv_freq` along.
+- It also becomes accessible via `self.inv_freq` afterward (the same name used as the registration key), and shows up under `model.buffers()` / `model.named_buffers()`.
+
+**What `persistent=False` means:** by default, buffers are persistent — included when you call `model.state_dict()` and saved to a checkpoint file. `persistent=False` opts `inv_freq` out of that. Reason: `inv_freq` is fully deterministic — it can always be *recomputed* from `rope_theta` and `head_dim` in `config` (that's literally what `compute_default_rope_parameters` does). There's no point bloating every saved checkpoint with a tensor that can be regenerated instantly from two config values already saved elsewhere. `persistent=False` buffers still behave like normal buffers at runtime (move with `.to()`, accessible as `self.inv_freq`) — they're just skipped when serializing to disk.
+
+**Why `original_inv_freq` exists separately:** `.clone()` makes an independent copy, not a reference to the same tensor. `self.inv_freq` may get **overwritten in-place** later for dynamic RoPE variants (e.g. "dynamic" NTK scaling recomputes `inv_freq` on the fly as sequence length grows past the trained context window, via the `dynamic_rope_update` decorator on `forward`). `original_inv_freq` preserves the pristine, original frequencies so the model can always recompute from the true baseline rather than drifting from a previously-modified `inv_freq`.
+
 **2. `compute_default_rope_parameters`** (static method, the actual math)
 - `dim` = size of each attention head.
 - Computes `inv_freq[i] = 1 / theta^(2i/dim)` for `i = 0, 2, 4, ... dim-2`. This gives a geometric range of frequencies — early indices rotate fast (capture local/short-range position info), later indices rotate slowly (capture long-range position info).
