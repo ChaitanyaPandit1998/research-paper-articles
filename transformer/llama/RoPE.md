@@ -65,6 +65,55 @@ self.register_buffer("original_inv_freq", inv_freq.clone(), persistent=False)
 
 So: `__init__` sets up *constants* (`inv_freq`), `forward` turns those constants + *actual positions* into per-token `cos`/`sin` tables.
 
+#### `inv_freq_expanded` / `position_ids_expanded` — the exact reshape lines
+
+```python
+inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1).to(x.device)
+position_ids_expanded = position_ids[:, None, :].float()
+```
+
+- `self.inv_freq[None, :, None]` — indexing with `None` inserts a new size-1 axis (same as `.unsqueeze()`, written via indexing). First `None` adds a batch axis at the front, `:` keeps the existing `dim/2` axis, second `None` adds a trailing axis. Shape `[dim/2]` → `[1, dim/2, 1]`.
+- `.float()` — defensive cast to float32; the angle computation needs float32 precision even if the model (and thus the buffer) was cast to a lower precision dtype elsewhere.
+- `.expand(position_ids.shape[0], -1, 1)` — broadcasts the size-1 batch axis up to the real runtime batch size, without copying memory (`-1` keeps `dim/2` unchanged, trailing `1` stays `1`). Shape → `[batch, dim/2, 1]`.
+- `.to(x.device)` — extra safety guarantee that the tensor lands on the same device as `x` (the hidden-states input), even though buffers normally already move with `model.to(device)`.
+- `position_ids[:, None, :]` — keeps the batch axis, inserts a new size-1 axis in the middle, keeps `seq_len`. Shape `[batch, seq_len]` → `[batch, 1, seq_len]`. `.float()` casts the (normally integer) position indices to float so they're matmul-compatible with `inv_freq`.
+
+**Short example:** `dim/2 = 4` so `self.inv_freq = [1.0, 0.1, 0.01, 0.001]` (shape `[4]`), `batch = 1`, `position_ids = [[0, 1, 2]]` (shape `[1, 3]`, 3 tokens).
+
+```
+self.inv_freq[None, :, None]:
+[1.0, 0.1, 0.01, 0.001]              # shape [4]
+        ↓
+[[[1.0], [0.1], [0.01], [0.001]]]    # shape [1, 4, 1]
+
+position_ids[:, None, :]:
+[[0, 1, 2]]                # shape [1, 3]
+        ↓
+[[[0, 1, 2]]]               # shape [1, 1, 3]
+```
+
+`.expand(1, -1, 1)` leaves the shape unchanged here since batch is already 1 (it only matters when batch > 1, repeating the same frequency values across each batch entry without copying memory).
+
+**Why reshape this way — the matmul that follows:**
+
+```
+inv_freq_expanded:      [1, 4, 1]
+position_ids_expanded:  [1, 1, 3]
+
+matmul → [1, 4, 3]:
+[[1.0*0, 1.0*1, 1.0*2],
+ [0.1*0, 0.1*1, 0.1*2],
+ [0.01*0, 0.01*1, 0.01*2],
+ [0.001*0, 0.001*1, 0.001*2]]
+=
+[[0.0, 1.0, 2.0],
+ [0.0, 0.1, 0.2],
+ [0.0, 0.01, 0.02],
+ [0.0, 0.001, 0.002]]
+```
+
+Each row is one frequency's angle at every position; each column is one position's angles across all 4 frequencies. The `[None, ...]`/`[..., None]` reshaping exists purely to set up a `(4,1) @ (1,3)` matmul shape, producing this outer product (`position × frequency` for every combination) in one operation instead of a nested loop.
+
 **4. `rotate_half(x)`**
 - Splits a vector in half: `x1` (first half), `x2` (second half).
 - Returns `[-x2, x1]` — this is the 90°-rotation trick: RoPE treats pairs of dimensions as 2D vectors and rotates them by the position-dependent angle. Pairing dim `i` with dim `i + dim/2` (rather than adjacent `i, i+1`) is just Llama's interleaving convention — mathematically equivalent to true complex-pair rotation.
