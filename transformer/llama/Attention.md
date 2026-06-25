@@ -114,7 +114,43 @@ Adds the mask (e.g. causal mask: positions can't attend to future tokens) as lar
 ```python
 attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
 ```
-Softmax over the last axis (`seqlen_k`) turns raw scores into a probability distribution — for each query position, how much attention to pay to each key position. Forced to `float32` for numerical stability (softmax exponentials can overflow/underflow in float16/bfloat16), then cast back to the model's working dtype.
+Softmax over the last axis (`seqlen_k`) turns raw scores into a probability distribution — for each query position, how much attention to pay to each key position.
+
+### Why float32? The overflow problem
+
+Models run in **bfloat16** by default — 16-bit floats with only 7 bits of mantissa precision and a maximum representable value of ~38,912. The softmax formula is:
+
+```
+softmax(x_i) = e^(x_i) / sum(e^(x_j))
+```
+
+The danger is the `e^x` step. Attention scores can be large, especially for long sequences or early in training:
+
+```
+If one score = 89.0:
+  e^89 ≈ 4.5 × 10^38
+
+bfloat16 max ≈ 3.4 × 10^38
+
+→ e^89 overflows to inf in bfloat16
+→ softmax output becomes nan
+→ nan propagates through the entire forward pass silently
+```
+
+**float32** can represent up to ~3.4 × 10^38 with 23 bits of mantissa, so it handles these exponentials safely. Running softmax in float32 eliminates the overflow risk entirely.
+
+### What the single line actually does in sequence
+
+```python
+# 1. upcast attn_weights from bfloat16 → float32  (dtype=torch.float32 argument)
+# 2. run softmax in float32                        (safe from overflow)
+# 3. cast probabilities back to bfloat16           (.to(query.dtype))
+attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
+```
+
+### Why cast back to bfloat16 after?
+
+The probabilities produced by softmax are all between 0 and 1 — no overflow risk. The next operation (`attn_weights @ value_states`) is a plain weighted sum of value vectors, which bfloat16 handles safely. Staying in float32 for the matmul would use 2× the memory and lose the speed advantage of bfloat16 tensor cores (e.g. H100 runs bfloat16 matmuls much faster than float32). The upcast/downcast is a precision firewall around the one dangerous operation, not a wholesale dtype upgrade.
 
 **Step 5 — dropout:**
 ```python

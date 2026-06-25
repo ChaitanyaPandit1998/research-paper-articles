@@ -15,6 +15,42 @@ if use_cache and past_key_values is None:
 
 If `use_cache=False` (training) or a cache was already passed in (continuing a previous generation), this line does nothing.
 
+### Why a cache at all — the O(N²) problem
+
+Without a cache, autoregressive generation recomputes K/V for every previously seen token on every step:
+
+```
+Step 1: input = ["The"]                → compute K/V for 1 token  → predict "cat"
+Step 2: input = ["The", "cat"]         → compute K/V for 2 tokens → predict "sat"
+Step 3: input = ["The", "cat", "sat"]  → compute K/V for 3 tokens → predict "on"
+```
+
+Total K/V computations: 1 + 2 + 3 + ... + N = O(N²). For a 4K-token response, that's millions of redundant recomputations.
+
+`DynamicCache` stores the K and V tensors from previous steps — one slot per layer:
+
+```
+DynamicCache after step 2 (2 tokens processed):
+  Layer 0:  K = [k_"The", k_"cat"],  V = [v_"The", v_"cat"]
+  Layer 1:  K = [k_"The", k_"cat"],  V = [v_"The", v_"cat"]
+  ...
+  Layer 31: K = [k_"The", k_"cat"],  V = [v_"The", v_"cat"]
+```
+
+At step 3, only `"sat"` goes through the layers. Each layer reads its cached K/V, appends the new token's K/V, and attends over the full history — without recomputing the old tokens. Work per step drops from O(N) to O(1).
+
+### Why create it empty here if none was passed in?
+
+Creating `DynamicCache()` at the model level means the layers can always call `past_key_values.update(k, v, layer_idx)` without first checking "does a cache exist?". That check is done once at the top of `LlamaModel.forward`, not repeated inside every decoder layer.
+
+```
+First call (fresh prompt):
+  past_key_values = None → DynamicCache() created here → layers fill it → returned to caller
+
+Subsequent calls (generation):
+  past_key_values = filled cache passed in → creation skipped → layers extend it
+```
+
 ## Computing `position_ids` when not provided
 
 ```python
@@ -26,16 +62,64 @@ if position_ids is None:
 
 This builds the `position_ids` that get fed into `LlamaRotaryEmbedding.forward` (see `RoPE.md`) — but only if the caller didn't already supply explicit positions.
 
-**`past_seen_tokens`**: how many tokens are already sitting in the cache from previous forward calls.
-- If there's no cache (`past_key_values is None`, e.g. plain training on a full sequence), `past_seen_tokens = 0`.
-- If there is a cache (mid-generation), `past_key_values.get_seq_length()` returns how many tokens have already been processed and cached — e.g. after generating 5 tokens, this returns `5`.
+### Why position IDs need the cache
 
-**`torch.arange(inputs_embeds.shape[1], ...) + past_seen_tokens`**:
-- `inputs_embeds.shape[1]` is the sequence length of *this* forward pass's input — during generation with a cache, this is typically just `1` (the newest token), not the whole history.
-- `torch.arange(seq_len)` gives `[0, 1, ..., seq_len-1]` — local indices for the tokens in *this* call.
-- Adding `past_seen_tokens` shifts those local indices into absolute positions in the full sequence. Example: if 5 tokens are already cached and this call processes 1 new token, `torch.arange(1) + 5 = [5]` — correctly telling RoPE "this new token is at position 5," not position 0.
+RoPE encodes a token's *absolute position* in the sequence into its Q and K vectors. If the model doesn't know the right position number, attention scores will be wrong — queries and keys will "think" they're closer or farther apart than they really are.
 
-**`.unsqueeze(0)`**: adds a batch dimension, turning shape `[seq_len]` into `[1, seq_len]`, matching the `[batch, seq_len]` shape `LlamaRotaryEmbedding.forward` expects for `position_ids` (it later gets broadcast/expanded across the actual batch size if needed).
+The problem during generation: the model only receives **one new token** per step, but that token isn't at position 0 — it's at position N, wherever the sequence currently is:
+
+```
+Prompt:  ["The", "cat", "sat"]  → positions 0, 1, 2
+Step 1: generate token          → it lives at position 3
+Step 2: generate token          → it lives at position 4
+```
+
+Without `+ past_seen_tokens`, every new token would be told it's at position 0. RoPE would apply the wrong rotation, and the attention pattern would be completely broken.
+
+### Line by line
+
+**`past_seen_tokens = past_key_values.get_seq_length()`**
+
+Returns how many tokens are already stored in the cache — i.e., how far into the sequence we already are:
+
+```
+Fresh prompt, empty cache:       past_seen_tokens = 0
+After processing 3-token prompt: past_seen_tokens = 3
+After generating 2 more tokens:  past_seen_tokens = 5
+```
+
+If there's no cache at all (e.g. plain training on a full sequence), falls back to `0`.
+
+**`torch.arange(seq_len) + past_seen_tokens`**
+
+`seq_len = inputs_embeds.shape[1]` — the number of tokens in *this specific forward call*, not the full history. During generation with a cache, this is typically `1`.
+
+`torch.arange(seq_len)` gives local indices `[0, 1, ..., seq_len-1]`. Adding `past_seen_tokens` shifts them into absolute positions:
+
+```
+First call  — prompt = 3 tokens, cache empty:
+  past_seen_tokens = 0,  seq_len = 3
+  position_ids = [0, 1, 2] + 0 = [0, 1, 2]   ✓
+
+Second call — generating token 4, cache has 3:
+  past_seen_tokens = 3,  seq_len = 1
+  position_ids = [0] + 3 = [3]               ✓
+
+Third call  — generating token 5, cache has 4:
+  past_seen_tokens = 4,  seq_len = 1
+  position_ids = [0] + 4 = [4]               ✓
+```
+
+**`.unsqueeze(0)`**
+
+`torch.arange` produces a 1D tensor of shape `[seq_len]`. The model expects shape `[batch, seq_len]` — one position sequence per item in the batch. `.unsqueeze(0)` inserts the batch dimension:
+
+```
+Before: [0, 1, 2]     shape: [3]
+After:  [[0, 1, 2]]   shape: [1, 3]
+```
+
+The `[1, seq_len]` shape then broadcasts across the actual batch size without copying data.
 
 ## Why this matters together
 
