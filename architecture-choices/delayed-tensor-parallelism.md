@@ -120,6 +120,131 @@ The postcards travel in parallel with computation. By the time they're needed, t
 
 ---
 
+## Where the All-Reduce Actually Happens (Under the Hood)
+
+The story simplified it to "one town meeting per layer." In reality there are **two all-reduces per layer** — one inside the attention block and one inside the MLP block. Both happen at the same structural point: the boundary between a column-parallel and a row-parallel linear layer.
+
+### The Column → Row → All-Reduce Pattern
+
+In standard tensor parallelism, weight matrices are split across GPUs in two complementary ways:
+
+**Column-parallel** — each GPU gets a vertical slice of the weight. It takes the full input and produces a partial output independently. No sync needed yet.
+
+**Row-parallel** — each GPU gets a horizontal slice of the weight. It takes a partial input and produces a partial result that must be *summed* with every other GPU's result to get the correct full output. This is where the all-reduce fires.
+
+```
+Column-parallel (no sync needed):
+  Full input X → GPU_0 computes X @ W_col0 → partial output (its shard)
+               → GPU_1 computes X @ W_col1 → partial output (its shard)
+               → ...each GPU works independently
+
+Row-parallel (sync required):
+  GPU_0: partial_0 = X_shard0 @ W_row0
+  GPU_1: partial_1 = X_shard1 @ W_row1
+  ...
+  ★ ALL-REDUCE: full_output = partial_0 + partial_1 + ... + partial_7 ★
+  ← no GPU can proceed until every GPU has contributed its piece
+```
+
+### All-Reduce #1 — Inside Attention
+
+```
+Q, K, V projections (column-parallel):
+  All 8 GPUs receive the same hidden_states
+  GPU_0 → owns heads 0–3    (its shard of W_q, W_k, W_v)
+  GPU_1 → owns heads 4–7
+  ...
+  No sync — each GPU works on its own heads
+
+Attention scores + softmax:
+  Each GPU runs attention only over its own heads
+  No sync — heads are fully independent of each other
+
+Output projection W_o (row-parallel):
+  GPU_0 has attention output for heads 0–3  → partial_0
+  GPU_1 has attention output for heads 4–7  → partial_1
+  ...
+  ★ ALL-REDUCE #1 ★  sum partial_0..7 → full attention output
+  ← everyone stops here
+```
+
+### All-Reduce #2 — Inside the MLP
+
+```
+W1 / W3 gate+value projections (column-parallel):
+  GPU_0 → ffn_dim shard 0
+  GPU_1 → ffn_dim shard 1
+  ...
+  No sync
+
+SiLU gating: silu(W1) * W3
+  Each GPU applies this to its own intermediate shard
+  No sync
+
+W2 down-projection (row-parallel):
+  GPU_0: partial_0 = ffn_shard_0 @ W2_row0
+  GPU_1: partial_1 = ffn_shard_1 @ W2_row1
+  ...
+  ★ ALL-REDUCE #2 ★  sum partial_0..7 → full MLP output
+  ← everyone stops here
+```
+
+### Full Per-Layer Picture: 2 Blocking Stops
+
+```
+  hidden_states (identical on all 8 GPUs)
+        │
+        ▼
+  Q, K, V projections  [column-parallel, no sync]
+        │
+        ▼
+  Attention scores + softmax  [per-GPU heads, no sync]
+        │
+        ▼
+  Output projection W_o  [row-parallel]
+        │
+        ▼
+  ★ ALL-REDUCE #1 ★  ← GPU_0..7 sum partial results, everyone waits
+        │
+        ▼
+  Residual + RMSNorm
+        │
+        ▼
+  W1, W3 projections  [column-parallel, no sync]
+        │
+        ▼
+  SiLU gate  [no sync]
+        │
+        ▼
+  W2 down-projection  [row-parallel]
+        │
+        ▼
+  ★ ALL-REDUCE #2 ★  ← GPU_0..7 sum partial results, everyone waits
+        │
+        ▼
+  Residual → next layer (same pattern repeats)
+```
+
+For a 15-layer model: **30 all-reduces total** per forward pass (2 per layer × 15 layers). Each one sends `hidden_size × 2 bytes` (in bfloat16) across NVLink/InfiniBand and blocks until every GPU has the full result.
+
+### Why This Hurts at Low Batch Size
+
+The all-reduce latency is roughly **fixed** — it costs the same whether you're processing 1 token or 128 tokens, because the same amount of data needs to cross the interconnect regardless of batch size.
+
+```
+High batch (128 sequences):
+  GPU compute per layer:  ████████████████████  (long — lots of arithmetic)
+  All-reduce:                                ██  (small fraction of total time)
+
+Low batch (1 sequence):
+  GPU compute per layer:  ████                  (short — almost no arithmetic)
+  All-reduce:                 ████              (same fixed cost — now dominates)
+```
+
+This is exactly the bottleneck DTP eliminates. Instead of 30 blocking all-reduces, Laneformer uses 0 — replacing each one with a delayed addition using a result that was already computed two layers ago and is sitting in memory, free of charge.
+
+---
+
 ## How It Maps to the Code
 
 | Story element | Code equivalent |
