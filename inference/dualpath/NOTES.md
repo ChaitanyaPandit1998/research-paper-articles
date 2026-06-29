@@ -124,6 +124,113 @@ The broader lesson: **optimisation targets must evolve with workload patterns**.
 
 ---
 
+## DualPath Mechanism — Explained as a Story
+
+### The District
+
+Picture a manufacturing district with two types of factories side by side, connected by roads and internal conveyor belts.
+
+**Prefill Factories** are the planners. When a new job arrives — say, "here are 80,000 words of context, now process them" — the prefill factory reads all of it, builds a detailed work plan (the KV-Cache), and hands it to the next building.
+
+**Decode Factories** are the assembly lines. They take the plan and produce the output, one word at a time. Precise, methodical, token by token.
+
+Between every pair of factories is a **fast internal conveyor belt** — a high-bandwidth RDMA link. The prefill factory uses it to ship its work plan to the decode factory when a new job starts.
+
+Behind both factories, across the street, is the **Central Warehouse** — NVMe SSD storage. It stores all the KV-Caches from previous turns of every ongoing conversation. Each factory has exactly one **loading dock** facing the warehouse — a storage NIC.
+
+---
+
+### The Old Way: One Loading Dock Does Everything
+
+Before DualPath, the rule was simple: all warehouse deliveries go to the Prefill Factory's loading dock. The prefill factory needs the KV-Cache, so the warehouse trucks always drove to the prefill dock.
+
+For short jobs, this was fine. A small box, quick delivery, no queue.
+
+But agentic tasks changed everything.
+
+---
+
+### The Problem: Rush Hour at One Dock
+
+Imagine it's peak hour. A hundred long-running agent jobs are all mid-conversation — coding agents, research agents, document review agents. Each on Turn 8, Turn 12, Turn 15. Each turn, the system needs to reload their KV-Cache from the warehouse.
+
+A hundred warehouse trucks all queue up at the **Prefill Factory's loading dock**. One gate. One lane. Trucks backed up around the block.
+
+Meanwhile, across the narrow alley, the **Decode Factory's loading dock** is completely empty. Its gate is open. Its dock workers are playing cards. Not a single truck in sight.
+
+The Decode Factory has a loading dock connected to the same warehouse. But every driver has been told the same thing: *"Deliveries go to the Prefill dock. That's the rule."*
+
+The system grinds — not because there's not enough cargo, not because the factories can't process it, but because one loading dock is a chokepoint while an identical one sits idle twenty metres away.
+
+---
+
+### The DualPath Idea: Open the Second Dock
+
+A logistics engineer watches the queue at the Prefill dock and the empty Decode dock and has a thought: *"What if we let some trucks deliver to the Decode dock instead?"*
+
+The obvious objection: the Decode Factory doesn't need the KV-Cache. Delivering to the wrong factory doesn't help.
+
+The engineer smiles. *"The factories are connected by that conveyor belt, aren't they?"*
+
+Yes — the same internal conveyor belt that normally carries work plans from Prefill to Decode. It runs the other direction too. And right now, when the Prefill dock is jammed, the conveyor belt is sitting at maybe 30% capacity.
+
+**Path 1 (traditional):**
+> Warehouse truck → Prefill dock → Prefill factory uses the cargo directly
+
+**Path 2 (new):**
+> Warehouse truck → Decode dock → Decode factory receives cargo → ships it down the conveyor belt → Prefill factory receives it
+
+Path 2 has an extra step — but every step in Path 2 is happening on **currently idle infrastructure**. The Decode dock that was sitting empty, and the conveyor belt running at 30%. The Prefill factory gets its KV-Cache either way.
+
+---
+
+### How the Scheduler Decides
+
+You can't randomly send all trucks to the Decode dock — that would just move the jam. So DualPath uses a **Traffic Controller** (the global scheduler) who watches everything in real time and asks four questions before assigning each truck:
+
+1. **How backed up is the Prefill dock right now?** No queue → Path 1 is faster, use it.
+2. **How much spare capacity does the Decode dock have?** If it's already filling up, sending more there shifts the jam.
+3. **How busy is the internal conveyor belt?** It also carries urgent work plans (model weight communications) that can't wait. If it's near capacity, Path 2 is throttled.
+4. **How urgent is this delivery?** Tight-deadline jobs get Path 1 — predictable latency over optimised throughput.
+
+No truck picks its own route. Central coordination prevents the solution from creating new jams.
+
+---
+
+### A Concrete Evening at the Dock
+
+**Without DualPath:**
+- 120 trucks queue at the Prefill dock
+- Average wait: 4 minutes per truck
+- Decode dock: empty
+- Throughput: 200 jobs/hour
+
+**With DualPath:**
+- Queue of 8 trucks at Prefill dock → controller sends next 5 to Decode via Path 2
+- Decode dock receives cargo, loads onto conveyor belt → Prefill gets it ~40 seconds later than direct
+- Prefill dock clears faster; next batch split again across both docks
+- Conveyor belt runs at 65% — busy but not saturated, urgent work plans still get through
+
+**Result: 390 jobs/hour — 1.96× improvement. Same buildings, same trucks, same conveyor belt. Just better routing.**
+
+---
+
+### Why the Extra Hop Is Acceptable
+
+The bottleneck was never the conveyor belt — it was the single loading dock. Once two docks work in parallel, the 40-second relay via the conveyor belt is a small price compared to the 4-minute queue in the old system.
+
+Same reason a highway with two toll booths handles twice the traffic as one, even if one booth requires a slight detour. The detour costs seconds; the queue costs minutes.
+
+---
+
+### The Moral of the Mechanism
+
+DualPath doesn't add new roads, widen the conveyor belt, or build a bigger warehouse. It notices a road nobody was using — the one to the Decode factory's loading dock — and builds a Traffic Controller smart enough to use both roads without creating new jams.
+
+> **Parallel loading docks + intelligent routing + throttled relay = double the effective storage bandwidth at zero hardware cost.**
+
+---
+
 ## Use Cases and Real-World Relevance
 
 ### Where This Problem Actually Appears
