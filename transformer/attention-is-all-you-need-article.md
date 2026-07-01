@@ -143,51 +143,63 @@ The Transformer's architecture is elegant in prose, but the paper's real contrib
 
 ### Equation 1: Scaled Dot-Product Attention
 
-$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$
+> 📌 *Insert equation image here — render at [codecogs.com/latex/eqneditor](https://editor.codecogs.com) and upload to Medium*
 
-| Symbol | What it is |
-|--------|-----------|
-| $Q$ | The Query matrix — a stack of "what am I looking for?" vectors, one per token |
-| $K$ | The Key matrix — a stack of "what do I contain?" vectors, one per token |
-| $V$ | The Value matrix — a stack of "what will I contribute?" vectors, one per token |
-| $QK^T$ | A dot product between every query and every key — produces a score for every token pair |
-| $d_k$ | The dimension of the key vectors |
-| $\sqrt{d_k}$ | A scaling factor to stop the dot products from exploding in magnitude |
-| $\text{softmax}(\cdot)$ | Converts raw scores into probabilities — weights that sum to 1 |
+```
+Attention(Q, K, V) = softmax( Q·Kᵀ / √d_k ) · V
+```
+
+**Every symbol unpacked:**
+
+- **Q** — the Query matrix: a stack of "what am I looking for?" vectors, one per token
+- **K** — the Key matrix: a stack of "what do I contain?" vectors, one per token
+- **V** — the Value matrix: a stack of "what will I contribute?" vectors, one per token
+- **Q·Kᵀ** — a dot product between every query and every key, producing a score for every token pair
+- **d_k** — the dimension of the key vectors
+- **√d_k** — a scaling factor to stop the dot products from exploding in magnitude
+- **softmax(·)** — converts raw scores into probabilities, weights that sum to 1
 
 **What it's doing:** For each token, it scores its query against every other token's key, scales those scores to keep them numerically stable, converts them to weights, then uses those weights to compute a weighted average of all the values.
 
 **Why it matters:** This single equation replaces the entire recurrence mechanism of an RNN. Every token's output is now a function of *all* other tokens simultaneously — computed in one matrix operation.
 
-The $\sqrt{d_k}$ term is easy to skip over. It earns its place. When $d_k$ is large — say, 64 — the dot products between queries and keys grow large in magnitude. Large inputs to softmax push the output into regions where gradients are nearly zero, which kills learning. Dividing by $\sqrt{d_k}$ keeps the scores in a well-behaved range. One line with an outsized effect on training stability.
+The √d_k term is easy to skip over. It earns its place. When d_k is large — say, 64 — the dot products between queries and keys grow large in magnitude. Large inputs to softmax push the output into regions where gradients are nearly zero, which kills learning. Dividing by √d_k keeps the scores in a well-behaved range. One line with an outsized effect on training stability.
 
 ### Equation 2: Multi-Head Attention
 
-$$\text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_1, \ldots, \text{head}_h)\, W^O$$
+> 📌 *Insert equation image here — render and upload to Medium*
 
-$$\text{where} \quad \text{head}_i = \text{Attention}(QW_i^Q,\; KW_i^K,\; VW_i^V)$$
+```
+MultiHead(Q, K, V) = Concat(head_1, ..., head_h) · Wᴼ
+where head_i = Attention(Q·W_i^Q,  K·W_i^K,  V·W_i^V)
+```
 
-| Symbol | What it is |
-|--------|-----------|
-| $h$ | The number of attention heads (8 in the base model) |
-| $W_i^Q, W_i^K, W_i^V$ | Learned projection matrices — each head projects Q, K, V into its own lower-dimensional subspace |
-| $\text{head}_i$ | The output of one full attention computation in that subspace |
-| $\text{Concat}(\cdot)$ | Stack all head outputs side by side into one wide vector |
-| $W^O$ | A learned output projection that compresses the concatenated heads back to model dimension |
+**Every symbol unpacked:**
 
-**What it's doing:** It runs $h$ independent attention operations on learned projections of the same input, then merges their outputs through a final linear layer.
+- **h** — the number of attention heads (8 in the base model)
+- **W_i^Q, W_i^K, W_i^V** — learned projection matrices; each head projects Q, K, V into its own lower-dimensional subspace
+- **head_i** — the output of one full attention computation in that subspace
+- **Concat(·)** — stack all head outputs side by side into one wide vector
+- **Wᴼ** — a learned output projection that compresses the concatenated heads back to model dimension
+
+**What it's doing:** It runs h independent attention operations on learned projections of the same input, then merges their outputs through a final linear layer.
 
 **Why it matters:** Each head can specialise in a different type of dependency — syntax, coreference, semantics — without any of them being explicitly trained to do so. This emergent specialisation is one reason the Transformer generalises so well.
 
 ### Equation 3: Positional Encoding
 
-$$PE_{(pos,\, 2i)} = \sin\!\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right) \qquad PE_{(pos,\, 2i+1)} = \cos\!\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right)$$
+> 📌 *Insert equation image here — render and upload to Medium*
 
-| Symbol | What it is |
-|--------|-----------|
-| $pos$ | The position of the token in the sequence (0, 1, 2, …) |
-| $i$ | The dimension index within the encoding vector |
-| $d_{\text{model}}$ | The model's embedding dimension (512 in the base model) |
+```
+PE(pos, 2i)   = sin( pos / 10000^(2i / d_model) )
+PE(pos, 2i+1) = cos( pos / 10000^(2i / d_model) )
+```
+
+**Every symbol unpacked:**
+
+- **pos** — the position of the token in the sequence (0, 1, 2, …)
+- **i** — the dimension index within the encoding vector
+- **d_model** — the model's embedding dimension (512 in the base model)
 
 **What it's doing:** It assigns each position a unique vector built from sine and cosine waves at different frequencies — lower dimensions oscillate slowly (capturing long-range position), higher dimensions oscillate quickly (capturing fine-grained position).
 
@@ -217,14 +229,18 @@ The paper's authors tested the Transformer on machine translation — the standa
 
 **WMT 2014 Translation Benchmarks**
 
-| Model | EN→DE BLEU | EN→FR BLEU | Training Cost (FLOPs) |
-|-------|-----------|-----------|----------------------|
-| ByteNet | 23.75 | — | — |
-| ConvS2S (single) | 25.16 | 40.46 | ~1.5 × 10¹⁹ |
-| ConvS2S (ensemble) | 26.36 | 41.29 | — |
-| MoE (ensemble) | 26.03 | 40.56 | ~1.2 × 10²⁰ |
-| **Transformer (base)** | **27.3** | **38.1** | **~3.3 × 10¹⁸** |
-| **Transformer (big)** | **28.4** | **41.0** | **~2.3 × 10¹⁹** |
+> 📌 *Paste this into a Google Sheet and embed as an image, or use [tablesgenerator.com](https://tablesgenerator.com) to export as an image for Medium*
+
+```
+Model                   EN→DE BLEU   EN→FR BLEU   Training Cost
+──────────────────────────────────────────────────────────────────
+ByteNet                   23.75          —              —
+ConvS2S (single)          25.16        40.46       ~1.5 × 10¹⁹
+ConvS2S (ensemble)        26.36        41.29            —
+MoE (ensemble)            26.03        40.56       ~1.2 × 10²⁰
+Transformer (base)        27.3         38.1        ~3.3 × 10¹⁸  ✓
+Transformer (big)         28.4         41.0        ~2.3 × 10¹⁹  ✓
+```
 
 The big Transformer beat all prior single models and most ensembles on English-to-German — by more than 2 BLEU points over the best ensemble. On English-to-French, it matched the best ensemble result with a *single model* trained for a fraction of the cost.
 
