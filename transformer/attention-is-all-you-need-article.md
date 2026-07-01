@@ -143,11 +143,7 @@ The Transformer's architecture is elegant in prose, but the paper's real contrib
 
 ### Equation 1: Scaled Dot-Product Attention
 
-> 📌 *Insert equation image here — render at [codecogs.com/latex/eqneditor](https://editor.codecogs.com) and upload to Medium*
-
-```
-Attention(Q, K, V) = softmax( Q·Kᵀ / √d_k ) · V
-```
+$$\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$
 
 **Every symbol unpacked:**
 
@@ -167,12 +163,9 @@ The √d_k term is easy to skip over. It earns its place. When d_k is large — 
 
 ### Equation 2: Multi-Head Attention
 
-> 📌 *Insert equation image here — render and upload to Medium*
+$$\text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_1, \ldots, \text{head}_h)\, W^O$$
 
-```
-MultiHead(Q, K, V) = Concat(head_1, ..., head_h) · Wᴼ
-where head_i = Attention(Q·W_i^Q,  K·W_i^K,  V·W_i^V)
-```
+$$\text{where} \quad \text{head}_i = \text{Attention}(QW_i^Q,\; KW_i^K,\; VW_i^V)$$
 
 **Every symbol unpacked:**
 
@@ -188,12 +181,9 @@ where head_i = Attention(Q·W_i^Q,  K·W_i^K,  V·W_i^V)
 
 ### Equation 3: Positional Encoding
 
-> 📌 *Insert equation image here — render and upload to Medium*
+$$PE_{(pos,\, 2i)} = \sin\!\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right)$$
 
-```
-PE(pos, 2i)   = sin( pos / 10000^(2i / d_model) )
-PE(pos, 2i+1) = cos( pos / 10000^(2i / d_model) )
-```
+$$PE_{(pos,\, 2i+1)} = \cos\!\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right)$$
 
 **Every symbol unpacked:**
 
