@@ -198,26 +198,26 @@ $$PE_{(pos,\, 2i+1)} = \cos\!\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right
 ```mermaid
 %%{init: {'look': 'handDrawn', 'theme': 'default'}}%%
 flowchart TD
-    classDef input      fill:#4A90D9,stroke:#2C6FAC,color:#fff
-    classDef attention  fill:#7B5EA7,stroke:#5A3D8A,color:#fff
-    classDef heads      fill:#2EAF7D,stroke:#1D8A60,color:#fff
-    classDef norm       fill:#E8864A,stroke:#C4672E,color:#fff
+    classDef input fill:#4A90D9,stroke:#2C6FAC,color:#fff
+    classDef attention fill:#7B5EA7,stroke:#5A3D8A,color:#fff
+    classDef heads fill:#2EAF7D,stroke:#1D8A60,color:#fff
+    classDef norm fill:#E8864A,stroke:#C4672E,color:#fff
 
-    A[Token Embeddings]            -->|+ positional signal|    B[Positional Encoding]
-    B                              -->                          C[Query / Key / Value Projections]
-    C                              -->|dot product + scale|    D[Attention Scores]
-    D                              -->|softmax|                E[Attention Weights]
-    E                              -->|weighted sum of Values| F[Single Head Output]
-    F                              -->|repeat h times|         G[Multi-Head Outputs]
-    G                              -->|concat + linear|        H[Multi-Head Attention Output]
-    H                              -->|add input + normalise|  I[Add & Norm]
-    I                              -->                          J[Feed-Forward Network]
-    J                              -->|add input + normalise|  K[Layer Output]
+    A[Token Embeddings] -->|add positional signal| B[Positional Encoding]
+    B --> C[Query / Key / Value Projections]
+    C -->|dot product and scale| D[Attention Scores]
+    D -->|softmax| E[Attention Weights]
+    E -->|weighted sum of Values| F[Single Head Output]
+    F -->|repeat h times| G[Multi-Head Outputs]
+    G -->|concat and linear| H[Multi-Head Attention Output]
+    H -->|add input and normalise| I[Add and Norm]
+    I --> J[Feed-Forward Network]
+    J -->|add input and normalise| K[Layer Output]
 
-    class A,B           input
-    class C,D,E         attention
-    class F,G,H         heads
-    class I,J,K         norm
+    class A,B input
+    class C,D,E attention
+    class F,G,H heads
+    class I,J,K norm
 ```
 
 Every token asks a question (Query), every token posts an answer (Key + Value), and the model learns — entirely from data — which questions and answers matter for the task at hand.
