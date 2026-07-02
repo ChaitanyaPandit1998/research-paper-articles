@@ -300,6 +300,96 @@ $$PE_{(pos,\, 2i+1)} = \cos\!\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right
 
 **Why it matters:** The relative position between any two tokens can be expressed as a linear function of their encodings — meaning the model can learn to attend based on *distance*, not just absolute position.
 
+---
+
+### Worked Example: Positional Encoding for "cat sat mat"
+
+Same sentence, same three tokens. We'll use d_model = 4 — four dimensions, so there are only two frequency pairs to track. Every even dimension uses sine, every odd dimension uses cosine.
+
+**Step 1 — Compute the frequency for each dimension pair**
+
+With d_model = 4, there are two values of i:
+
+```
+i = 0  →  denominator = 10000^(0/4) = 10000^0.0 =   1.0   (fast oscillation)
+i = 1  →  denominator = 10000^(2/4) = 10000^0.5 = 100.0   (slow oscillation)
+```
+
+Dimensions 0–1 use a denominator of 1 — they oscillate quickly with position.
+Dimensions 2–3 use a denominator of 100 — they barely move between nearby positions.
+
+---
+
+**Step 2 — Compute the PE vector for each token**
+
+Plug each token's position into the formula:
+
+```
+"cat"  pos = 0
+  dim 0  sin(0 / 1)   = sin(0.000) =  0.000
+  dim 1  cos(0 / 1)   = cos(0.000) =  1.000
+  dim 2  sin(0 / 100) = sin(0.000) =  0.000
+  dim 3  cos(0 / 100) = cos(0.000) =  1.000
+  PE = [ 0.000,  1.000,  0.000,  1.000 ]
+
+"sat"  pos = 1
+  dim 0  sin(1 / 1)   = sin(1.000) =  0.841
+  dim 1  cos(1 / 1)   = cos(1.000) =  0.540
+  dim 2  sin(1 / 100) = sin(0.010) =  0.010
+  dim 3  cos(1 / 100) = cos(0.010) =  1.000
+  PE = [ 0.841,  0.540,  0.010,  1.000 ]
+
+"mat"  pos = 2
+  dim 0  sin(2 / 1)   = sin(2.000) =  0.909
+  dim 1  cos(2 / 1)   = cos(2.000) = -0.416
+  dim 2  sin(2 / 100) = sin(0.020) =  0.020
+  dim 3  cos(2 / 100) = cos(0.020) =  1.000
+  PE = [ 0.909, -0.416,  0.020,  1.000 ]
+```
+
+---
+
+**Step 3 — Notice what the frequencies are doing**
+
+Look at dimensions 0 and 1 (fast frequency, denominator = 1):
+- "cat": 0.000, 1.000
+- "sat": 0.841, 0.540
+- "mat": 0.909, −0.416
+
+These values change dramatically between adjacent positions — they carry fine-grained position information.
+
+Now look at dimensions 2 and 3 (slow frequency, denominator = 100):
+- "cat": 0.000, 1.000
+- "sat": 0.010, 1.000
+- "mat": 0.020, 1.000
+
+These barely move across three positions. In a 512-token sequence they would still be changing slowly — tracking broad position (beginning vs. middle vs. end of the sentence).
+
+This is the design intent: early dimensions act like a second hand on a clock (fast, precise), later dimensions act like an hour hand (slow, structural).
+
+---
+
+**Step 4 — Add PE to the word embeddings**
+
+The positional signal is simply added to the word embedding. No learned parameters. No separate module. Just addition:
+
+```
+token   word embedding        +   positional encoding      =   final input vector
+cat    [0.200, 0.800, 0.500, 0.300] + [0.000,  1.000, 0.000, 1.000] = [0.200, 1.800, 0.500, 1.300]
+sat    [0.700, 0.100, 0.900, 0.400] + [0.841,  0.540, 0.010, 1.000] = [1.541, 0.640, 0.910, 1.400]
+mat    [0.300, 0.600, 0.200, 0.800] + [0.909, -0.416, 0.020, 1.000] = [1.209, 0.184, 0.220, 1.800]
+```
+
+"cat" and "mat" share similar word embeddings in dimension 0 (0.2 and 0.3 — both are nouns). After adding positional encoding, their final vectors are clearly distinct: 0.200 vs 1.209. The model can now tell them apart not just by what they mean, but by where they sit.
+
+---
+
+**The key insight**
+
+Every token in "cat sat mat" now carries two pieces of information fused into one vector: its meaning (from the word embedding) and its position (from the sinusoidal encoding). The attention mechanism that follows operates on these combined vectors — which is why it can resolve "cat sat on a mat where the cat looked tired" without confusing the two "cat" tokens.
+
+---
+
 ```mermaid
 %%{init: {'look': 'handDrawn', 'theme': 'default'}}%%
 flowchart TD
