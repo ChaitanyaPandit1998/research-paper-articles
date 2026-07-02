@@ -161,6 +161,109 @@ $$\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^T}{\sqrt{d_k}}\righ
 
 The √d_k term is easy to skip over. It earns its place. When d_k is large — say, 64 — the dot products between queries and keys grow large in magnitude. Large inputs to softmax push the output into regions where gradients are nearly zero, which kills learning. Dividing by √d_k keeps the scores in a well-behaved range. One line with an outsized effect on training stability.
 
+---
+
+### Worked Example: "cat sat mat"
+
+Let's run the equation by hand on a tiny sentence. Three tokens, two-dimensional vectors (d_k = 2) — small enough to follow, big enough to show the mechanism.
+
+**The sentence:** `cat  |  sat  |  mat`
+
+**Step 1 — Assign Query, Key, and Value vectors**
+
+In a real model these are learned. Here we'll use illustrative values:
+
+```
+         dim1   dim2
+Q_cat  [  1.0    0.5 ]   ← cat is asking: "what am I acting on?"
+Q_sat  [  0.5    1.0 ]   ← sat is asking: "who is doing this action?"
+Q_mat  [  0.2    0.8 ]   ← mat is asking: "what action relates to me?"
+
+K_cat  [  1.0    0.3 ]   ← cat says: "I am a subject/actor"
+K_sat  [  0.3    1.0 ]   ← sat says: "I am a verb/action"
+K_mat  [  0.8    0.2 ]   ← mat says: "I am an object"
+
+V_cat  [  0.9    0.1 ]   ← cat contributes: strong subject signal
+V_sat  [  0.1    0.9 ]   ← sat contributes: strong verb signal
+V_mat  [  0.5    0.5 ]   ← mat contributes: balanced object signal
+```
+
+---
+
+**Step 2 — Compute raw attention scores for "sat"**
+
+We focus on "sat" as our query token. It scores its Query vector against every Key vector using a dot product — asking, in effect, *"how relevant is each word to me?"*
+
+```
+score(sat → cat) = Q_sat · K_cat = (0.5 × 1.0) + (1.0 × 0.3) = 0.5 + 0.3 = 0.80
+score(sat → sat) = Q_sat · K_sat = (0.5 × 0.3) + (1.0 × 1.0) = 0.15 + 1.0 = 1.15
+score(sat → mat) = Q_sat · K_mat = (0.5 × 0.8) + (1.0 × 0.2) = 0.40 + 0.2 = 0.60
+```
+
+Raw scores: `cat = 0.80  |  sat = 1.15  |  mat = 0.60`
+
+---
+
+**Step 3 — Scale by √d_k**
+
+d_k = 2, so √d_k ≈ 1.41. Divide every score:
+
+```
+cat:  0.80 / 1.41 ≈ 0.57
+sat:  1.15 / 1.41 ≈ 0.82
+mat:  0.60 / 1.41 ≈ 0.43
+```
+
+Scaled scores: `cat = 0.57  |  sat = 0.82  |  mat = 0.43`
+
+---
+
+**Step 4 — Apply softmax to get attention weights**
+
+Softmax converts the scores into probabilities that sum to 1:
+
+```
+e^0.57 ≈ 1.77
+e^0.82 ≈ 2.27
+e^0.43 ≈ 1.54
+          ────
+sum     ≈ 5.58
+
+weight(cat) = 1.77 / 5.58 ≈ 0.32  (32%)
+weight(sat) = 2.27 / 5.58 ≈ 0.41  (41%)
+weight(mat) = 1.54 / 5.58 ≈ 0.28  (28%)
+```
+
+The word "sat" attends to itself most (41%), then "cat" (32%), then "mat" (28%). In a deeper model with real learned weights, subject-verb pairs like "cat"→"sat" would show much stronger signal — but you can already see the mechanism reaching toward that.
+
+---
+
+**Step 5 — Compute the weighted sum of Value vectors**
+
+Multiply each Value vector by its attention weight and add them up:
+
+```
+0.32 × V_cat = 0.32 × [0.9, 0.1] = [0.288, 0.032]
+0.41 × V_sat = 0.41 × [0.1, 0.9] = [0.041, 0.369]
+0.28 × V_mat = 0.28 × [0.5, 0.5] = [0.140, 0.140]
+                                    ──────────────
+Output_sat                        = [0.469, 0.541]
+```
+
+---
+
+**Step 6 — Interpret the result**
+
+The input vector for "sat" was `[0.1, 0.9]` — a strong verb signal in dimension 2.
+
+The output vector is `[0.469, 0.541]` — dimension 1 (subject) has grown significantly, while the verb signal has softened.
+
+What happened? "Sat" absorbed context from "cat" and "mat." Its new representation now carries information about *who is doing the sitting* and *where*, not just the verb itself. This context-enriched vector is what gets passed to the next layer.
+
+That is the entire mechanism. One equation, applied in parallel across every token in the sequence.
+
+---
+
 ### Equation 2: Multi-Head Attention
 
 $$\text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_1, \ldots, \text{head}_h)\, W^O$$
