@@ -1,5 +1,7 @@
 # The Paper That Killed RNNs: How "Attention Is All You Need" Rewired AI
 
+> **Original paper:** Vaswani et al. (2017) — "Attention Is All You Need" → https://arxiv.org/abs/1706.03762
+>
 > **Medium tags:** Artificial Intelligence, Machine Learning, Deep Learning, Natural Language Processing, Transformers
 >
 > **Hero image:** A dark-background visualization of an attention matrix — a grid of glowing connection lines between words in a sentence, with "animal" and "it" connected by a bright, thick arc while other connections fade into the background. The visual should feel like a neural constellation map, not a dry diagram.
@@ -377,6 +379,45 @@ Honest accounting matters here. The Transformer introduced new problems as it cl
 **Data hunger.** The Transformer's parallelism is a training-time advantage. It also means the model sees no inherent structure — it learns everything from data. That requires enormous datasets. Applying this architecture to low-resource languages or domains without large corpora remained hard.
 
 **Positional generalisation.** Models trained on sequences up to length 512 degrade on sequences of length 1024. The architecture has no guaranteed ability to extrapolate position — a limitation that still drives active research.
+
+---
+
+## Attention Is the Heart of Every LLM You've Ever Used
+
+The 2017 paper introduced attention as a tool for translation. What it accidentally built was the engine of every large language model that exists today.
+
+When you send a message to ChatGPT, Claude, or Gemini, here is what happens at the core: your prompt is tokenised, each token becomes a vector, and the model runs the scaled dot-product attention equation — the one from this paper — across every token in your input, thousands of times, stacked across dozens of layers. The response you receive is the product of billions of those attention operations completing in under a second.
+
+That is not a metaphor. That is literally what runs.
+
+---
+
+### From Encoder-Decoder to Decoder-Only
+
+The original paper's architecture had two halves: an encoder that reads input, and a decoder that generates output. Modern LLMs — GPT-4, Claude, Llama, Gemini — dropped the encoder entirely. They use a **decoder-only** architecture: a single stack of masked self-attention layers, trained to predict the next token given all previous ones.
+
+The masking is the key detail. In the paper's decoder, masked self-attention ensures a token can only attend to tokens that came before it. In a decoder-only LLM, that same mask means the model processes your entire prompt in one forward pass — but when generating, each new token is computed by attending to everything written so far. The mechanism is unchanged. The scale is not.
+
+---
+
+### Why Attention Produces Emergent Behaviour
+
+One of the most studied puzzles in LLM research is why large models develop capabilities — reasoning, analogy, in-context learning — that weren't explicitly trained for. Attention is the leading candidate explanation.
+
+Each attention head can learn an arbitrary lookup function over the sequence. With enough heads, enough layers, and enough training data, the model can learn to simulate pattern matching, coreference resolution, multi-step reasoning, and structural analogy — all as weighted averages over token vectors. No symbolic rules. No hand-crafted logic. Just the equation from page 3 of a 2017 paper, applied at scale.
+
+The reason this works is that attention has no fixed inductive bias about *what* relationships matter. It learns whatever relationships are predictive. Train on code, and heads specialise in tracking variable scope. Train on text, and heads track subject-verb agreement. Train on everything, and you get a model that does both — and more — at inference time.
+
+---
+
+### Read the Paper Itself
+
+Everything described in this article comes from a single 15-page document. It is unusually readable for a research paper — the authors explain their decisions, compare alternatives, and include ablation results that show what happens when you remove each component.
+
+**"Attention Is All You Need" — Vaswani et al., 2017**
+→ https://arxiv.org/abs/1706.03762
+
+If you've read this article, you have enough context to follow the paper directly. Section 3 (the model architecture) and Section 3.2 (attention) are the core. The rest is training details and results. It is worth reading once in full — not many papers from 2017 describe the system you are actively using right now.
 
 ---
 
