@@ -142,6 +142,35 @@ Think of the output as a table: 1024 columns (one per patch), 588 rows (one per 
 
 After permute, each **row** is one patch (1024 rows), and each row contains its 588 pixel values. This is the shape the transformer expects — a sequence of vectors, one per token.
 
+**Why `permute` and not `transpose`?**
+
+For this specific case they are identical — you could write either:
+
+```python
+hidden_states.permute(0, 2, 1)   # equivalent
+hidden_states.transpose(1, 2)    # equivalent
+```
+
+Both return a non-contiguous view of the same data with dimensions 1 and 2 swapped. No copy, no difference in output.
+
+The real difference is scope:
+
+- `transpose(dim0, dim1)` — swaps exactly two dimensions, nothing else
+- `permute(*dims)` — reorders ALL dimensions at once in any order
+
+`permute` becomes necessary when you need to move more than two dimensions in one step. In attention code, shapes like `[B, heads, seq, depth]` are common and often need multi-dimension reordering:
+
+```python
+x = torch.randn(B, heads, seq, depth)   # [B, H, S, D]
+
+# Want [B, S, H, D] — two dims moving simultaneously
+
+x.permute(0, 2, 1, 3)     # one clean call
+x.transpose(1, 2)          # also works here, but chains get messy with more dims
+```
+
+`permute` is the convention throughout ViT-style code because the same codebase already uses it heavily for multi-head attention reshapes — consistency favours it over `transpose`. There is no performance difference between the two.
+
 ---
 
 **`return self.linear(hidden_states)`**
