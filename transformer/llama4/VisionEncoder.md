@@ -67,6 +67,8 @@ This is mathematically equivalent to a stride-matching `Conv2d` (which PyTorch i
 
 ## 2. CLS Token and Positional Embeddings
 
+### The code
+
 ```python
 self.num_patches = (image_size // patch_size) ** 2 + 1   # 1024 + 1 = 1025 (includes CLS)
 self.scale = config.hidden_size ** -0.5                    # 1/sqrt(768) ≈ 0.036
@@ -85,12 +87,137 @@ hidden_state = torch.cat([hidden_state, class_embedding], dim=1)   # [B, 1025, 7
 hidden_state = hidden_state + positional_embedding_vlm   # learned, [1025, 768] → broadcast
 ```
 
-Note: the CLS token is **appended at the end**, not prepended. This is different from CLIP/ViT convention of prepending `[CLS]`. The CLS position is tracked in the vision RoPE tables (see below) using a special ID `-2`.
+---
 
-After the encoder, the CLS token is stripped before further processing:
+### Line-by-line breakdown
+
+**`self.num_patches = (image_size // patch_size) ** 2 + 1`**
+
+The image is 448×448. Each patch is 14×14.
+```
+448 // 14 = 32        → 32 patches fit along each side
+32 ** 2   = 1024      → 1024 patches tile the whole image
++ 1                   → one extra slot reserved for the CLS token
+= 1025
+```
+This number sizes every buffer that operates over the full token sequence.
+
+---
+
+**`self.scale = config.hidden_size ** -0.5`**
+
+`hidden_size ** -0.5` is `1 / √hidden_size`. With `hidden_size = 768`:
+```
+1 / √768 ≈ 1 / 27.7 ≈ 0.036
+```
+This is a weight initialisation scale factor. `torch.randn` produces values with variance 1. Multiplying by `1/√d` shrinks the variance to `1/d`, preventing initial dot products in attention from being too large — the same reasoning as the `√d_k` denominator in the attention equation.
+
+---
+
+**`self.class_embedding = nn.Parameter(self.scale * torch.randn(self.hidden_size))`**
+
+```
+torch.randn(768)        → random vector of shape [768], values ~ N(0, 1)
+* self.scale            → multiply by 0.036, shrinking variance to 1/768
+nn.Parameter(...)       → register as a trainable parameter
+```
+This is the CLS token's initial value — a single vector of length 768. It has no semantic content at initialisation. It learns its role entirely through backpropagation. Because it is an `nn.Parameter`, PyTorch includes it in `model.parameters()` and updates it with every gradient step.
+
+---
+
+**`self.positional_embedding_vlm = nn.Parameter(self.scale * torch.randn(self.num_patches, self.hidden_size))`**
+
+Same pattern, but a 2D matrix:
+```
+torch.randn(1025, 768)  → one 768-dim vector per token slot (1024 patches + 1 CLS)
+* self.scale            → same initialisation scaling
+nn.Parameter(...)       → fully learnable
+```
+Each of the 1025 positions gets its own learned positional vector. Unlike the sinusoidal encoding in the original Transformer paper, these are not computed from a formula — they are free parameters trained to encode whatever positional signal is useful.
+
+---
+
+**`class_embedding = self.class_embedding.expand(batch, 1, hidden_dim)`**
+
+`self.class_embedding` has shape `[768]` — a single vector. `hidden_state` is `[B, 1024, 768]`. To append CLS to each image in the batch it must be reshaped:
+```
+self.class_embedding            →  [768]
+.expand(batch, 1, hidden_dim)   →  [B, 1, 768]
+```
+`expand` is memory-efficient — it does not copy the data B times. It creates a view that appears to have batch size B while pointing to the same underlying storage.
+
+---
+
+**`hidden_state = torch.cat([hidden_state, class_embedding], dim=1)`**
+
+Concatenate along `dim=1` — the sequence dimension:
+```
+hidden_state      [B, 1024, 768]   ← 1024 patch tokens
+class_embedding   [B,    1, 768]   ← 1 CLS token
+─────────────────────────────────
+result            [B, 1025, 768]   ← CLS appended at the end
+```
+Note: most vision models (CLIP, ViT) *prepend* CLS at position 0. Llama 4 appends it at the end. The attention mechanism doesn't care — CLS still attends to every patch regardless. What changes is how the positional encoding handles it, which is why Llama 4 marks CLS with a special ID `-2` and assigns it zero RoPE frequency (no spatial position, since CLS doesn't correspond to any image region).
+
+---
+
+**`hidden_state = hidden_state + positional_embedding_vlm`**
+
+`positional_embedding_vlm` has shape `[1025, 768]`. `hidden_state` has shape `[B, 1025, 768]`. PyTorch broadcasts across the batch dimension automatically:
+```
+[B, 1025, 768]   ← patch + CLS token vectors (content only so far)
++  [1025, 768]   ← one positional vector per slot (broadcast across B)
+=  [B, 1025, 768] ← each token now carries both content and position
+```
+Every token in every image in the batch gets the same positional signal added to it.
+
+---
+
+After the encoder runs, the CLS token is stripped before further processing:
 ```python
 hidden_state = hidden_state[:, :-1, :]   # remove CLS, keep the 1024 patch tokens
 ```
+The downstream multimodal model works with the 1024 context-enriched patch tokens. CLS served its purpose inside the encoder — giving the self-attention layers a global aggregation slot — and is then discarded. The patch tokens carry its influence even after it is removed, because they attended to it across all layers.
+
+---
+
+### What the CLS token actually is — and where it came from
+
+**Invented for BERT (2018).** BERT processes every token in a sentence and produces one contextual vector per token. For classification tasks you need a *single* summary vector — but which token do you pick? The solution: prepend a special learnable token `[CLS]` with no semantic content. Because BERT uses full bidirectional attention, by the final layer CLS has attended to every other token and absorbed information from the whole sequence. Its output becomes the natural classification summary.
+
+```
+Input:  [CLS]  The   company   reported   strong   earnings
+           ↕     ↕      ↕         ↕          ↕        ↕
+Output:  h_CLS  h_1   h_2       h_3        h_4      h_5
+                                                    
+→ h_CLS is the single summary vector passed to the classification head
+```
+
+**Copied into vision by ViT (2020).** ViT treats images as sequences of patch tokens. The problem is identical to BERT's — one vector per patch, but you need one vector for the whole image. The CLS token was transplanted unchanged: prepend a learnable slot, run bidirectional attention across all patches, use the CLS output as the image representation.
+
+```
+[CLS]  patch_1  patch_2  ... patch_1024
+  ↕       ↕        ↕             ↕
+h_CLS   h_1      h_2           h_1024
+
+→ h_CLS → classification head → "this is a cat"
+```
+
+**What CLS actually learns in vision.** In early layers it attends broadly across all patches. By the final layer its attention sharpens onto the most semantically informative regions — the foreground object, not the background. The DINO paper (2021) demonstrated that these CLS attention maps produce clean object outlines with no segmentation supervision — a global summary token accidentally became a free saliency map.
+
+**Alternatives that emerged.**
+- **Global Average Pooling (GAP)** — average all patch representations instead of using a special token. Simpler, no special token needed. Many modern ViT variants use this.
+- **Register tokens (2023, Meta/FAIR)** — large ViTs develop "artifacts" where CLS and certain patches accumulate disproportionate global attention, corrupting the spatial structure of other tokens. The fix: add dedicated learnable register tokens alongside CLS to give the model explicit global-information slots. Now standard in DINOv2 and subsequent vision encoders.
+
+**The lineage:**
+```
+BERT (2018)       ViT (2020)          DINO (2021)           Register Tokens (2023)
+CLS for text  →   CLS for image   →   CLS learns        →   Multiple registers replace
+classification    classification       segmentation           corrupted CLS artifacts
+                                       for free
+```
+
+**One-line summary:** CLS is a learnable "summary slot" with no initial meaning — bidirectional attention forces it to collect information from every other token by the final layer, making it the natural single-vector representation for the whole sequence. Invented for text in BERT, transplanted into vision in ViT, refined as researchers discovered both its power (free saliency maps) and its failure mode (attention artifacts at scale).
 
 ---
 
