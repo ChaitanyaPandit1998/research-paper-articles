@@ -56,12 +56,116 @@ class Llama4UnfoldConvolution(nn.Module):
         return self.linear(hidden_states)            # [B, num_patches, hidden_size=768]
 ```
 
-**`torch.nn.Unfold`** extracts sliding-window patches from an image, outputting all pixel values within each patch as a flat vector. For a 448×448 image with patch size 14:
-- `num_patches = (448/14)² = 32² = 1024`
-- Each patch vector has length `3 * 14 * 14 = 588`
-- Output: `[B, 588, 1024]`, then transposed to `[B, 1024, 588]`
+---
 
-This is mathematically equivalent to a stride-matching `Conv2d` (which PyTorch itself implements via unfold internally), but the explicit unfold makes the patch extraction step visible and separable from the projection. The projection linear `588 → 768` is the same as a `Conv2d`'s weight matrix would be.
+### Line-by-line breakdown
+
+#### `__init__`
+
+---
+
+**`kernel_size = config.patch_size`**
+
+`patch_size` is 14, so `kernel_size = 14`. This defines the size of the window that slides over the image — each patch is a 14×14 pixel tile. In practice `kernel_size` is used as a tuple `(14, 14)` by `nn.Unfold`.
+
+---
+
+**`self.unfold = torch.nn.Unfold(kernel_size=kernel_size, stride=config.patch_size)`**
+
+`torch.nn.Unfold` is the core of this class. It is worth understanding what it does precisely.
+
+Given an image tensor of shape `[B, C, H, W]`, Unfold slides a `kernel_size × kernel_size` window across the image with the given `stride`, and for every window position it flattens all pixel values — across all channels — into a single vector.
+
+With `kernel_size=14` and `stride=14` (stride equals kernel, so windows do not overlap):
+```
+Image:     [B, 3, 448, 448]
+Windows:   32 × 32 = 1024 non-overlapping 14×14 tiles
+Per tile:  3 channels × 14 × 14 pixels = 588 values flattened
+Output:    [B, 588, 1024]
+              ↑    ↑
+              │    └── one column per patch position
+              └── all pixel values for that patch (flattened)
+```
+
+The key thing to notice: Unfold puts patches in the **last** dimension (`1024`), not the second. Each column of the output is one patch. This is the opposite of what the transformer encoder expects (which wants patches as rows in dimension 1), which is why `permute` is needed in `forward`.
+
+Setting `stride = kernel_size` is what makes patches non-overlapping. If stride were smaller than kernel_size, patches would overlap and the patch count would be larger.
+
+---
+
+**`self.linear = nn.Linear(3 * 14 * 14, 768, bias=False)`**
+
+```
+Input features:   3 * 14 * 14 = 588   (all pixel values in one patch, all 3 RGB channels)
+Output features:  768                  (the model's hidden dimension)
+bias=False                             (standard in ViT-style patch projections)
+```
+
+This is the **patch projection** layer — it maps each raw 588-dim patch vector into the 768-dim space that the transformer encoder operates in. Every patch gets the same linear transformation applied independently.
+
+`bias=False` is conventional in vision transformers following ViT. The positional embeddings added immediately after provide sufficient bias signal, so a separate bias term here is redundant.
+
+**Why not `Conv2d`?** A `Conv2d` with `kernel_size=14, stride=14, out_channels=768` would do mathematically identical work — PyTorch even implements `Conv2d` internally using `Unfold`. Llama 4 uses explicit `Unfold + Linear` to make the two steps (patch extraction and projection) clearly separate and independently inspectable.
+
+---
+
+#### `forward`
+
+---
+
+**`hidden_states = self.unfold(hidden_states)`**
+
+Input shape coming in: `[B, 3, 448, 448]`
+
+After Unfold:
+```
+[B, 588, 1024]
+  ↑    ↑    ↑
+  │    │    └── 1024 patch positions (32 × 32 grid)
+  │    └── 588 values per patch (3 × 14 × 14 pixels, flattened)
+  └── batch size
+```
+
+Think of the output as a table: 1024 columns (one per patch), 588 rows (one per flattened pixel value). Each column is the raw pixel content of one 14×14 tile.
+
+---
+
+**`hidden_states = hidden_states.permute(0, 2, 1)`**
+
+`permute(0, 2, 1)` swaps dimensions 1 and 2, leaving dimension 0 (batch) unchanged:
+
+```
+[B, 588, 1024]  →  [B, 1024, 588]
+     ↑    ↑              ↑    ↑
+  pixels patches      patches pixels
+```
+
+After permute, each **row** is one patch (1024 rows), and each row contains its 588 pixel values. This is the shape the transformer expects — a sequence of vectors, one per token.
+
+---
+
+**`return self.linear(hidden_states)`**
+
+`nn.Linear` always operates on the **last dimension**. Applied to `[B, 1024, 588]`, it transforms 588 → 768 independently for each of the 1024 patches:
+
+```
+[B, 1024, 588]  →  [B, 1024, 768]
+                          ↑
+                      hidden_size
+```
+
+Each patch is now a 768-dim vector in the transformer's embedding space. The 1024 patches form a sequence that gets passed to the CLS token step and then the encoder blocks.
+
+---
+
+### Shape summary
+
+```
+Input image          [B, 3, 448, 448]
+after unfold         [B, 588, 1024]     ← patches in last dim
+after permute        [B, 1024, 588]     ← patches in sequence dim
+after linear         [B, 1024, 768]     ← projected to hidden size
+```
 
 ---
 
