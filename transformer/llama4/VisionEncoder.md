@@ -386,6 +386,211 @@ class Llama4VisionRotaryEmbedding(nn.Module):
         return freq_cis   # [1025, 1025, freq_dim//2] complex
 ```
 
+---
+
+### Line-by-line breakdown
+
+---
+
+**`idx = config.image_size // config.patch_size`**
+
+```
+448 // 14 = 32
+```
+
+Number of patches along one side of the image. The full grid is 32×32 = 1024 patches. `idx` is reused throughout as the grid dimension for both x and y.
+
+---
+
+**`img_idx = torch.arange(idx**2).reshape(idx**2, 1)`**
+
+```
+torch.arange(1024)      → [0, 1, 2, ..., 1023]   flat index for every patch
+.reshape(1024, 1)       → [[0], [1], ..., [1023]]  column vector, shape [1024, 1]
+```
+
+Each row is the flat index of one patch in the 32×32 grid (reading left-to-right, top-to-bottom). The reshape to `[1024, 1]` is deliberate — it lets the `%` and `//` operations later broadcast correctly against `rope_freq` (which is `[12]`), producing `[1024, 12]` frequency matrices.
+
+---
+
+**`img_idx = torch.cat([img_idx, img_idx[:1]], dim=0)`**
+
+```
+img_idx[:1]             → [[0]]        first row, shape [1, 1], placeholder for CLS
+cat along dim=0         → [1025, 1]    appends one extra row at the end
+```
+
+Adds a slot for the CLS token. The value `[[0]]` is a placeholder — the next line immediately overwrites it.
+
+---
+
+**`img_idx[-1, -1] = -2`**
+
+Sets the last element to `-2` — a sentinel value that means "CLS, not a real patch position". The value `-2` was chosen specifically to be negative, which triggers `img_idx < 0` in the `masked_fill` step later. CLS has no spatial location in the image grid, so its position frequencies must be zeroed out rather than computed.
+
+---
+
+**`frequencies_x = img_idx % idx`**
+
+```
+% 32  →  column index (x-coordinate) for each patch
+```
+
+For a flat index `i` in a 32×32 grid, `i % 32` gives the column it sits in:
+
+```
+patch 0   → 0 % 32 = 0   (leftmost column)
+patch 1   → 1 % 32 = 1
+patch 31  → 31 % 32 = 31  (rightmost column)
+patch 32  → 32 % 32 = 0   (back to leftmost, second row)
+```
+
+Shape: `[1025, 1]`. CLS: `-2 % 32 = 30` in Python — a junk value that gets zeroed out later by `masked_fill`.
+
+---
+
+**`frequencies_y = img_idx // idx`**
+
+```
+// 32  →  row index (y-coordinate) for each patch
+```
+
+`i // 32` gives the row:
+
+```
+patches 0–31   → y = 0  (top row)
+patches 32–63  → y = 1
+patches 992–1023 → y = 31  (bottom row)
+```
+
+Shape: `[1025, 1]`. Together, `frequencies_x` and `frequencies_y` recover the 2D grid coordinates from the flat index — equivalent to `(i % 32, i // 32)`.
+
+---
+
+**`freq_dim = config.hidden_size // config.num_attention_heads // 2`**
+
+```
+768 // 16 = 48    head dimension (each attention head operates on 48 values)
+48  // 2  = 24    split in half — 24 dims for x-position, 24 dims for y-position
+```
+
+RoPE encodes position by rotating pairs of dimensions. With 48 dims per head and 2D position, half the dims encode x and the other half encode y. `freq_dim = 24` is the number of frequency components needed for one spatial axis.
+
+---
+
+**`rope_freq = 1.0 / (rope_theta ** (torch.arange(0, freq_dim, 2)[:freq_dim//2] / freq_dim))`**
+
+Breaking this apart step by step:
+
+```
+torch.arange(0, 24, 2)          → [0, 2, 4, 6, ..., 22]       12 elements
+[:freq_dim//2] = [:12]          → same 12 elements
+/ freq_dim = / 24               → [0/24, 2/24, ..., 22/24]
+                                   = [0.0, 0.083, 0.167, ..., 0.917]
+
+rope_theta ** [0.0, 0.083, ...]  → 10000 ** [0.0, 0.083, ...]
+                                   = [1.0, 1.96, 3.83, ..., 7499]
+
+1.0 / [1.0, 1.96, ..., 7499]    → [1.0, 0.51, 0.26, ..., 0.000133]
+```
+
+Result shape: `[12]`. This is the same geometric sequence of base frequencies as standard text RoPE — high frequencies (≈1.0) for precise local position, low frequencies (≈0.0001) for coarse global position. Each of the 12 values will be used to rotate one pair of dimensions.
+
+---
+
+**`freqs_x = ((frequencies_x + 1) * rope_freq).repeat_interleave(2, dim=-1)`**
+
+Three operations fused:
+
+**`frequencies_x + 1`** — shift x-coordinates from 0-based to 1-based:
+```
+x=0 → 1,  x=1 → 2,  ...,  x=31 → 32
+```
+Without `+1`, the first column (x=0) would produce `0 * rope_freq = 0` for all frequencies. `sin(0) = 0` and `cos(0) = 1` for every dimension — an identity rotation that encodes no positional information. Shifting by 1 ensures every column gets a meaningful, distinct encoding.
+
+**`* rope_freq`** — multiply each position's shifted coordinate by each base frequency:
+```
+[1025, 1] × [12]  →  [1025, 12]   (broadcasting)
+```
+Row `i` of the result: the x-coordinate of patch `i`, scaled by each of the 12 base frequencies. This is the angle each dimension pair will rotate by for this patch's x-position.
+
+**`.repeat_interleave(2, dim=-1)`** — duplicate each frequency value:
+```
+[1025, 12] → [1025, 24]
+[a, b, c, ...] → [a, a, b, b, c, c, ...]
+```
+RoPE applies each frequency to a *pair* of dimensions (real and imaginary parts of a complex rotation). Duplicating ensures each frequency appears twice — once for each element of the pair.
+
+---
+
+**`freqs_y = ((frequencies_y + 1) * rope_freq).repeat_interleave(2, dim=-1)`**
+
+Identical to `freqs_x` but using y-coordinates. Result shape: `[1025, 24]`. Each patch now has both its x and y frequency vectors ready.
+
+---
+
+**`freqs = torch.cat([freqs_x, freqs_y], dim=-1).float().contiguous()[..., ::2]`**
+
+Four chained operations:
+
+**`cat([freqs_x, freqs_y], dim=-1)`** — concatenate x and y frequencies side by side:
+```
+[1025, 24] + [1025, 24]  →  [1025, 48]
+ ← x freqs →   ← y freqs →
+```
+
+**`.float()`** — ensure float32. Frequency computation can sometimes produce float16 or bfloat16 depending on config; `view_as_complex` requires float32.
+
+**`.contiguous()`** — ensures memory layout is contiguous. Required for `view_as_complex`, which needs the last dimension to be stored adjacently in memory.
+
+**`[..., ::2]`** — take every other element along the last dimension:
+```
+[1025, 48]  →  [1025, 24]
+indices 0, 2, 4, ..., 46
+```
+
+Because `repeat_interleave(2)` doubled each value before the cat, the even-indexed positions `[0, 2, 4, ..., 22]` are the de-duplicated x-frequencies and `[24, 26, ..., 46]` are the de-duplicated y-frequencies. The `[::2]` step strips the duplicates, leaving one copy of each frequency for x and one for y.
+
+---
+
+**`freqs = freqs.masked_fill(img_idx.reshape(-1, 1, 1) < 0, 0)`**
+
+```
+img_idx.reshape(-1, 1, 1)  →  [1025, 1, 1]
+< 0                        →  boolean mask, True only for CLS row (where img_idx = -2)
+masked_fill(..., 0)        →  set those positions to 0.0
+```
+
+CLS has no spatial position. Zeroing its frequencies means:
+```
+cos(0) = 1,  sin(0) = 0  →  complex number (1 + 0j)  →  identity rotation
+```
+Multiplying any vector by the identity rotation leaves it unchanged — so CLS receives no positional bias from RoPE.
+
+---
+
+**`freq_cis = torch.view_as_complex(torch.stack([torch.cos(freqs), torch.sin(freqs)], dim=-1))`**
+
+Three steps:
+
+**`torch.cos(freqs)`, `torch.sin(freqs)`** — compute the cosine and sine of every frequency value. These are the real and imaginary parts of the unit-circle rotation that RoPE applies.
+
+**`torch.stack([cos, sin], dim=-1)`** — pair each cos with its corresponding sin along a new last dimension:
+```
+[..., 24] + [..., 24]  →  [..., 24, 2]
+                              ↑
+                    (cos_val, sin_val) pairs
+```
+
+**`torch.view_as_complex(...)`** — interpret each `(cos, sin)` pair as a complex number `cos + i·sin`:
+```
+[..., 24, 2]  →  [..., 24] complex
+```
+
+This is the unit complex number `e^(iθ)` for each frequency angle θ. When applied to a query or key vector (via element-wise complex multiplication), it rotates the vector by angle θ — which is exactly what RoPE does to inject positional information. Tokens that are far apart in x or y will have their vectors rotated by very different angles, making the attention dot product naturally sensitive to spatial distance.
+
+---
+
 **Key differences from text RoPE:**
 - **2D, not 1D** — `frequencies_x` (column index) and `frequencies_y` (row index) are encoded separately into the frequency tensor, then concatenated. Each patch gets a position that encodes both where it is horizontally and vertically.
 - **Pre-computed at init, not per forward call** — the frequency table is stored as a non-persistent buffer (`register_buffer("freqs_ci", ...)`). It never changes across calls (unlike text RoPE, which recomputes for different `position_ids` each forward pass).
