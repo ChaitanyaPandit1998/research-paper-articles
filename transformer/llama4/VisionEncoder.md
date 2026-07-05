@@ -591,6 +591,53 @@ This is the unit complex number `e^(iθ)` for each frequency angle θ. When appl
 
 ---
 
+### Step-by-step: input → output at each line
+
+```
+Step | Line                                              | Shape in        | Shape out   | Values
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+1    | idx = image_size // patch_size                   | scalar          | scalar      | 448//14 = 32
+
+2    | torch.arange(idx**2)                             | —               | [1024]      | [0, 1, 2, ..., 1023]
+     | .reshape(idx**2, 1)                              | [1024]          | [1024, 1]   | [[0],[1],...,[1023]]
+
+3    | img_idx[:1]                                      | [1024, 1]       | [1, 1]      | [[0]]  (placeholder)
+     | torch.cat([img_idx, img_idx[:1]], dim=0)         | [1024,1]+[1,1]  | [1025, 1]   | [[0],[1],...,[1023],[0]]
+
+4    | img_idx[-1, -1] = -2                             | [1025, 1]       | [1025, 1]   | last row → [[-2]]
+
+5    | frequencies_x = img_idx % 32                    | [1025, 1]       | [1025, 1]   | col index per patch [0..31], CLS→30*
+6    | frequencies_y = img_idx // 32                   | [1025, 1]       | [1025, 1]   | row index per patch [0..31], CLS→0*
+
+7    | freq_dim = 768 // 16 // 2                        | scalar          | scalar      | 24
+
+8    | torch.arange(0, 24, 2)[:12] / 24                | —               | [12]        | [0.0, 0.083, ..., 0.917]
+     | rope_theta ** [...]                              | [12]            | [12]        | [1.0, 1.96, ..., 7499]
+     | 1.0 / [...]  →  rope_freq                        | [12]            | [12]        | [1.0, 0.51, ..., 0.000133]
+
+9    | frequencies_x + 1                               | [1025, 1]       | [1025, 1]   | col shifted 1-based [1..32]
+     | * rope_freq                                      | [1025,1]×[12]   | [1025, 12]  | angle per patch per frequency
+     | .repeat_interleave(2, dim=-1)  →  freqs_x       | [1025, 12]      | [1025, 24]  | [a,a,b,b,...] each freq duplicated
+
+10   | (same for y)  →  freqs_y                        | [1025, 1]       | [1025, 24]  | same structure, row coords
+
+11   | torch.cat([freqs_x, freqs_y], dim=-1)           | [1025,24]+[1025,24] | [1025, 48] | x-freqs first 24, y-freqs last 24
+     | .float().contiguous()                            | [1025, 48]      | [1025, 48]  | (dtype + memory layout)
+     | [..., ::2]  →  freqs                             | [1025, 48]      | [1025, 24]  | de-duplicated: 12 x-freqs + 12 y-freqs
+
+12   | img_idx.reshape(-1, 1, 1) < 0                   | [1025, 1]       | [1025,1,1]  | True only for CLS row (val=-2)
+     | freqs.masked_fill(..., 0)                        | [1025, 24]      | [1025, 24]  | CLS row → all 0.0, patches unchanged
+
+13   | torch.cos(freqs), torch.sin(freqs)              | [1025, 24]      | [1025, 24]  | cos and sin of each angle
+     | torch.stack([cos, sin], dim=-1)                 | [1025,24]+[1025,24] | [1025,24,2] | (cosθ, sinθ) pairs
+     | torch.view_as_complex(...)  →  freq_cis         | [1025, 24, 2]   | [1025, 24]† | e^(iθ) — complex rotation per patch
+```
+
+`*` CLS junk values (30 and 0) are overwritten to 0.0 by `masked_fill` in step 12 — they never affect the output.
+`†` `view_as_complex` collapses the last dim (size 2 = real, imag) into one complex number.
+
+---
+
 **Key differences from text RoPE:**
 - **2D, not 1D** — `frequencies_x` (column index) and `frequencies_y` (row index) are encoded separately into the frequency tensor, then concatenated. Each patch gets a position that encodes both where it is horizontally and vertically.
 - **Pre-computed at init, not per forward call** — the frequency table is stored as a non-persistent buffer (`register_buffer("freqs_ci", ...)`). It never changes across calls (unlike text RoPE, which recomputes for different `position_ids` each forward pass).
