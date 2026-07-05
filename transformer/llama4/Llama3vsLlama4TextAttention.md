@@ -46,55 +46,286 @@ Structure identical — both use GQA with 8 KV heads, both default `bias=False`.
 
 ## Step 2 — Positional Encoding: RoPE Implementation
 
-This is the deepest implementation difference. Both compute RoPE, but the math is expressed differently.
+This is the deepest implementation difference. Both compute the same rotation math — they differ in *how* they express it.
 
-**Llama3 — real-valued, `rotate_half` trick:**
+---
+
+### Part A — What is identical
+
+**`__init__`** is the same except the config type:
+
 ```python
-# LlamaRotaryEmbedding.forward:
-freqs = inv_freq_expanded @ position_ids_expanded   # [B, head_dim/2, S]
-emb = torch.cat([freqs, freqs], dim=-1)             # duplicate to full head_dim
-cos = emb.cos() * attention_scaling                 # [B, S, head_dim]
-sin = emb.sin() * attention_scaling                 # [B, S, head_dim]
+# Llama3                                  # Llama4
+class LlamaRotaryEmbedding(nn.Module):    class Llama4TextRotaryEmbedding(nn.Module):
+    def __init__(self, config: LlamaConfig, ...)   def __init__(self, config: Llama4TextConfig, ...)
+```
 
-# apply_rotary_pos_emb:
-cos = cos.unsqueeze(1)    # [B, 1, S, head_dim] — broadcast over heads
-sin = sin.unsqueeze(1)
-q_embed = (q * cos) + (rotate_half(q) * sin)
-k_embed = (k * cos) + (rotate_half(k) * sin)
+Every line inside `__init__` is identical: `max_seq_len_cached`, `original_max_seq_len`, rope_type dispatch via `ROPE_INIT_FUNCTIONS`, both `register_buffer` calls. The only difference is the config class because Llama4 uses a nested config (`Llama4Config` → `Llama4TextConfig` + `Llama4VisionConfig`) to separate text and vision settings.
 
+**`compute_default_rope_parameters`** is byte-for-byte identical in both:
+
+```python
+inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(..., dtype=torch.float) / dim))
+```
+
+The base RoPE frequency schedule did not change between Llama3 and Llama4. What changed is what the frequencies are used for downstream.
+
+---
+
+### Part B — `forward`: four concrete differences
+
+```
+Llama3                                          Llama4
+─────────────────────────────────────────────── ──────────────────────────────────────────────────────────
+inv_freq_expanded = (                           inv_freq_expanded = (
+    self.inv_freq[None, :, None]                    self.inv_freq[None, :, None]
+    .float()                                        .float()
+    .expand(position_ids.shape[0], -1, 1)           .expand(position_ids.shape[0], -1, 1)
+    .to(x.device)                            ①  )                                              ①
+)
+position_ids_expanded = position_ids[:, None, :].float()    (same)
+
+freqs = (                                       freqs = (
+    inv_freq_expanded.float()            ②          inv_freq_expanded.to(x.device)             ②
+    @ position_ids_expanded.float()      ②          @ position_ids_expanded                    ②
+).transpose(1, 2)                               ).transpose(1, 2)
+
+emb = torch.cat((freqs, freqs), dim=-1)  ③      (no emb step)                                  ③
+cos = emb.cos() * self.attention_scaling  ④      freqs_cis = torch.polar(                       ④
+sin = emb.sin() * self.attention_scaling  ④          torch.ones_like(freqs), freqs)             ④
+                                                freqs_cis = freqs_cis * self.attention_scaling  ④
+
+return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)   return freqs_cis                         ④
+```
+
+#### Difference ① — where `.to(x.device)` sits
+
+Llama3 chains `.to(x.device)` onto `expand` — the expanded tensor lands on the right device before the matmul. Llama4 moves the `.to(x.device)` call inside the matmul expression itself: `inv_freq_expanded.to(x.device) @`. The result is identical; Llama4's placement is a minor code readability refactor — keeping the device move visually close to where the tensor is actually consumed.
+
+#### Difference ② — `.float()` on both matmul operands vs only on one
+
+Llama3: `inv_freq_expanded.float() @ position_ids_expanded.float()` — both sides are explicitly cast to float32.
+
+Llama4: `inv_freq_expanded.to(x.device) @ position_ids_expanded` — only `inv_freq_expanded` is float (from `.float()` two lines above). `position_ids_expanded` is not re-cast here. The `maybe_autocast(..., enabled=False)` context block surrounding both still forces float32 arithmetic, so the precision is equivalent. Llama4 just avoids the redundant second `.float()` call.
+
+#### Difference ③ — `cat(freqs, freqs)` in Llama3, absent in Llama4
+
+This is the central structural difference in `forward`.
+
+```python
+# Llama3
+emb = torch.cat((freqs, freqs), dim=-1)   # [B, S, head_dim/2] → [B, S, head_dim]
+```
+
+Why it exists: Llama3's `rotate_half` splits the vector into two halves — all `x` values first, all `y` values second. For the elementwise multiply `q * cos` to work correctly, `cos[i]` must equal `cos[i + head_dim/2]` (same angle at both the `x` slot and its partner `y` slot). The `cat(freqs, freqs)` duplication guarantees exactly that.
+
+Why Llama4 doesn't need it: `torch.polar(ones, freqs)` creates a complex number `e^(iθ)` for each angle in `freqs`. One complex number already encodes both the `cos(θ)` (real part) and `sin(θ)` (imaginary part) needed for the rotation. When you multiply a complex number `(a + bi) * e^(iθ)`, you get both rotation components implicitly — no duplication required.
+
+In short: `cat(freqs, freqs)` exists to make real-valued arithmetic simulate what complex arithmetic does natively.
+
+#### Difference ④ — what `forward` returns
+
+```python
+# Llama3 returns two real tensors:
+return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
+# cos: [B, S, head_dim]   sin: [B, S, head_dim]
+
+# Llama4 returns one complex tensor:
+return freqs_cis
+# freqs_cis: [B, S, head_dim/2]  complex
+```
+
+Llama3 returns separate `cos` and `sin` tables at full `head_dim` — caller uses both explicitly. Llama4 returns a single complex tensor at half the size — `e^(iθ) = cos(θ) + i·sin(θ)` encodes both in one value. The complex tensor is half the size not because information was lost, but because each complex float64 equivalent (two float32s) holds one (cos, sin) pair.
+
+The type signature of the callers changes accordingly:
+
+```python
+# Llama3 caller (LlamaAttention):
+position_embeddings = self.rotary_emb(hidden_states, position_ids)   # returns (cos, sin)
+cos, sin = position_embeddings
+query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+# Llama4 caller (Llama4TextAttention):
+position_embeddings = self.rotary_emb(hidden_states, position_ids)   # returns freqs_cis
+query_states, key_states = apply_rotary_emb(query_states, key_states, position_embeddings)
+```
+
+---
+
+### Part C — applying the rotation: `rotate_half` + `apply_rotary_pos_emb` vs `apply_rotary_emb`
+
+#### Llama3 — two real multiply-adds
+
+```python
 def rotate_half(x):
-    x1 = x[..., : x.shape[-1] // 2]   # first half
-    x2 = x[..., x.shape[-1] // 2 :]   # second half
+    x1 = x[..., : x.shape[-1] // 2]   # first half:  [x0, x1, x2, x3]
+    x2 = x[..., x.shape[-1] // 2 :]   # second half: [y0, y1, y2, y3]
     return torch.cat((-x2, x1), dim=-1)
+    # result: [-y0, -y1, -y2, -y3,  x0, x1, x2, x3]
+
+def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
+    cos = cos.unsqueeze(unsqueeze_dim)   # [B, S, head_dim] → [B, 1, S, head_dim]
+    sin = sin.unsqueeze(unsqueeze_dim)   # broadcast over heads: q is [B, heads, S, head_dim]
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    return q_embed, k_embed
 ```
 
-**Llama4 — complex-valued, `torch.polar`:**
+`rotate_half` mechanically constructs the vector layout that makes one elementwise operation cover both components of all rotation pairs simultaneously. The `unsqueeze(1)` inserts a size-1 head axis so `[B, S, head_dim]` broadcasts against `[B, heads, S, head_dim]`.
+
+The rotation formula, written out for pair 0:
+
+```
+dim 0: q[0] * cos[0] + rotate_half(q)[0] * sin[0]
+     = x0 * cos(θ0) + (-y0) * sin(θ0)
+     = x0·cosθ − y0·sinθ   ← x component of rotation ✓
+
+dim 4: q[4] * cos[4] + rotate_half(q)[4] * sin[4]
+     = y0 * cos(θ0) + x0 * sin(θ0)
+     = x0·sinθ + y0·cosθ   ← y component of rotation ✓
+```
+
+This works because `cat(freqs, freqs)` made `cos[0] == cos[4]` (same angle at both slots) and `rotate_half` moved `-y0` to slot 0 and `x0` to slot 4.
+
+#### Llama4 — one complex multiply
+
 ```python
-# Llama4TextRotaryEmbedding.forward:
-freqs = (inv_freq_expanded @ position_ids_expanded).transpose(1, 2)  # [B, S, head_dim/2]
-freqs_cis = torch.polar(torch.ones_like(freqs), freqs)               # complex: e^(i*theta)
-freqs_cis = freqs_cis * self.attention_scaling
-
-# apply_rotary_emb:
-xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2))
-xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
-xq_out = torch.view_as_real(xq_ * freqs_cis[:, :, None, :]).flatten(3)
-xk_out = torch.view_as_real(xk_ * freqs_cis[:, :, None, :]).flatten(3)
+def apply_rotary_emb(xq, xk, freqs_cis):
+    xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2))
+    xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
+    xq_out = torch.view_as_real(xq_ * freqs_cis[:, :, None, :]).flatten(3)
+    xk_out = torch.view_as_real(xk_ * freqs_cis[:, :, None, :]).flatten(3)
+    return xq_out.type_as(xq), xk_out.type_as(xk)
 ```
 
-**The math is identical** — both implement `x_new = x·cosθ − y·sinθ, y_new = x·sinθ + y·cosθ` for each (x,y) pair. The difference is representation:
-- Llama3 stays in real numbers, uses `rotate_half` to rearrange the vector so one elementwise multiply-add covers both halves simultaneously
-- Llama4 encodes the same rotation as complex multiplication: `(x + iy) * e^(iθ) = (x·cosθ − y·sinθ) + i(x·sinθ + y·cosθ)`
+Step by step for `xq` (same for `xk`):
 
-**Memory layout also differs:**
-- Llama3: split-half layout — all `x` values first, all `y` values second: `[x0,x1,x2,x3, y0,y1,y2,y3]`
-- Llama4: consecutive-pair layout — `reshape(...,-1,2)` before `view_as_complex` means pairs are adjacent: `[(x0,y0), (x1,y1), (x2,y2), (x3,y3)]`
+**`xq.float().reshape(*xq.shape[:-1], -1, 2)`**
 
-Both are equivalent for attention (dot products are invariant to this layout), but weight tensors are not directly interchangeable between the two implementations.
+Takes every consecutive pair of floats in the last dimension and groups them:
+```
+xq:     [B, S, heads, head_dim]         e.g. [..., 128]
+reshape: [B, S, heads, head_dim/2, 2]   e.g. [..., 64, 2]
+```
+Pairs are `(dim0, dim1)`, `(dim2, dim3)`, etc. — consecutive, not split-half. This is the pairing convention choice.
 
-**`freqs_cis` shape:**
-- Llama3: `cos`/`sin` each `[B, S, head_dim]` — real tensors, already doubled via `cat(freqs, freqs)`
-- Llama4: `freqs_cis` is `[B, S, head_dim/2]` complex — no doubling needed, complex multiply handles both halves implicitly
+**`torch.view_as_complex(...)`**
+
+Interprets each `(a, b)` pair as a complex number `a + bi`:
+```
+[B, S, heads, head_dim/2, 2]  →  [B, S, heads, head_dim/2] complex
+```
+
+**`freqs_cis[:, :, None, :]`**
+
+Inserts a size-1 axis at position 2 to broadcast over the heads dimension:
+```
+freqs_cis:             [B, S, head_dim/2] complex
+freqs_cis[:,:,None,:]: [B, S, 1, head_dim/2] complex  → broadcasts against [B, S, heads, head_dim/2]
+```
+
+**`xq_ * freqs_cis[:, :, None, :]`**
+
+Complex multiplication:
+```
+(a + bi) * (cosθ + i·sinθ) = (a·cosθ − b·sinθ) + i·(a·sinθ + b·cosθ)
+```
+This is the identical 2D rotation formula, in one operation:
+
+```
+real part → a·cosθ − b·sinθ  ← same as x_new = x·cosθ − y·sinθ
+imag part → a·sinθ + b·cosθ  ← same as y_new = x·sinθ + y·cosθ
+```
+
+**`torch.view_as_real(...).flatten(3)`**
+
+Unpacks complex back to pairs of reals, then flattens the last two dims back to `head_dim`:
+```
+[B, S, heads, head_dim/2] complex
+  → view_as_real → [B, S, heads, head_dim/2, 2]
+  → flatten(3)   → [B, S, heads, head_dim]
+```
+
+---
+
+### Part D — memory layout: the one breaking difference
+
+```
+Llama3 split-half layout:                Llama4 consecutive-pair layout:
+[x0, x1, x2, x3,  y0, y1, y2, y3]      [x0, y0,  x1, y1,  x2, y2,  x3, y3]
+ ──── first half ────  ── second half ──  pair0    pair1    pair2    pair3
+```
+
+Both layouts encode the same 4 rotation pairs — they just arrange them differently in memory. The math is equivalent because the attention dot product `Q·Kᵀ` is a sum over all dimensions, which is invariant to the ordering of dimension pairs.
+
+**Why this matters:** if you load Llama3 Q/K weight matrices directly into a Llama4 model without reordering, the pairing is wrong — `dim0` would incorrectly pair with `dim1` (a different frequency index) instead of `dim head_dim/2` (its Llama3 partner). The rotations would be corrupted. Model-conversion code must permute the Q/K weight dimensions accordingly.
+
+---
+
+### Part E — full data flow, side by side
+
+```
+                    Llama3                              Llama4
+────────────────────────────────────────────────────────────────────────────
+inv_freq            [head_dim/2]                        [head_dim/2]
+                    same formula, same values            same formula, same values
+
+inv_freq_expanded   [B, head_dim/2, 1]                  [B, head_dim/2, 1]
+
+position_ids_exp    [B, 1, S]                           [B, 1, S]
+
+freqs (matmul)      [B, head_dim/2, S] → transpose      [B, head_dim/2, S] → transpose
+                    → [B, S, head_dim/2]                → [B, S, head_dim/2]
+
+emb (cat)           [B, S, head_dim]   ← doubled        (skipped)
+                    via cat(freqs, freqs)
+
+frequency output    cos [B, S, head_dim]  real           freqs_cis [B, S, head_dim/2]  complex
+                    sin [B, S, head_dim]  real            (cos + i·sin encoded together)
+
+in apply_rotary_*:
+  Q reshape         [B, heads, S, head_dim]  (unchanged) [B, S, heads, head_dim]
+                                                          → reshape → [B, S, heads, head_dim/2, 2]
+                                                          → view_as_complex → [B, S, heads, head_dim/2]
+
+  broadcast trick   cos.unsqueeze(1)                     freqs_cis[:, :, None, :]
+                    [B, 1, S, head_dim]                  [B, S, 1, head_dim/2]
+                    → broadcasts over heads              → broadcasts over heads
+
+  rotation          2 ops: q*cos + rotate_half(q)*sin   1 op: complex multiply
+  formula           real-valued                          (a+bi)*(cosθ+i·sinθ)
+
+  output reshape    already [B, heads, S, head_dim]      view_as_real + flatten(3)
+                    (no reshape needed)                  → [B, S, heads, head_dim]
+────────────────────────────────────────────────────────────────────────────
+```
+
+---
+
+### Part F — why Llama4 made these changes
+
+**Why switch to complex numbers?**
+
+The `rotate_half` approach is a workaround for real-valued arithmetic. To rotate pair `(x, y)` by angle θ you need:
+```
+x_new = x·cosθ − y·sinθ
+y_new = y·cosθ + x·sinθ
+```
+In real space, this requires touching `x` and `y` together. `rotate_half` achieves this by rearranging the whole vector and doing an elementwise multiply-add — effective, but indirect. The `cat(freqs, freqs)` duplication is also indirect — it exists only so the same angle appears at both slots of every pair.
+
+Complex multiplication `(x + iy) * e^(iθ)` performs this rotation directly — the math is baked into the definition of complex multiplication. No rearrangement, no duplication. The code is shorter and the intent is clearer.
+
+**Why the consecutive-pair layout?**
+
+`torch.view_as_complex` requires that the two floats forming a complex number be adjacent in memory — i.e. consecutive pairs. It has no "split-half" mode. So switching to `view_as_complex` forces consecutive-pair layout. If Llama4 had kept split-half layout, it would need an extra permute step before `view_as_complex` to move `y` values next to their `x` partners — defeating the simplification.
+
+**Why does the return type change from `(cos, sin)` to `freqs_cis`?**
+
+Returning two separate real tensors is the natural interface when the caller applies rotation manually via `q * cos + rotate_half(q) * sin`. Returning a single complex tensor is the natural interface when the caller does `q_ * freqs_cis`. The interface follows the implementation: switching from two real multiplications to one complex multiply changes what the caller needs to receive.
+
+**Why no float32 upcast on `position_ids_expanded` in Llama4?**
+
+Llama3 casts both operands to float32 explicitly: `inv_freq_expanded.float() @ position_ids_expanded.float()`. Llama4 omits the second cast. Both are inside `maybe_autocast(..., enabled=False)`, which suppresses autocast and ensures float32 arithmetic regardless. The extra `.float()` on `position_ids_expanded` in Llama3 is a defensive belt-and-suspenders cast that Llama4 dropped as unnecessary given the context manager already guarantees float32.
 
 ---
 
