@@ -647,6 +647,60 @@ The frequency table has shape `[1025, 1025, freq_dim//2]` because the vision enc
 
 ---
 
+### Why these differences exist
+
+#### Why 2D instead of 1D
+
+A flat patch index (0..1023) does not preserve spatial structure. Consider two pairs of patches that are both "1 step apart" in flat index:
+- patch 5 and patch 6 — adjacent horizontally (same row, next column)
+- patch 32 and patch 33 — also adjacent horizontally, one row below
+
+But patch 5 and patch 37 have flat-index distance 32 yet are directly above each other — the closest vertical neighbours. A 1D RoPE treats flat-index-1 pairs as "near" and flat-index-32 pairs as "far", making vertical neighbours appear distant even though they are spatially close. Two patches can be far apart in flat-index terms but directly adjacent in the image.
+
+2D RoPE encodes x and y independently, so the attention dot product is sensitive to both horizontal and vertical proximity simultaneously. A patch directly above another (distance 32 in flat index, distance 1 in y) correctly reads as spatially close in the y-frequency dimensions even though 1D RoPE would have treated it as far away. This is essential for any attention pattern that should respect spatial locality — detecting edges, object parts, textures.
+
+---
+
+#### Why pre-computed at init (not per forward pass)
+
+Text RoPE recomputes frequencies every forward pass because `position_ids` vary — different sequences have different lengths, and during generation positions shift as tokens are added to the KV cache.
+
+For vision, the image resolution is fixed by the config (`image_size = 448`, `patch_size = 14` → always a 32×32 grid). The grid coordinates never change between inputs. Recomputing 1025 patch positions and their 24 frequency values on every forward pass would be pure waste. Storing the result as a buffer at init costs a small amount of memory in exchange for eliminating the computation entirely at inference time.
+
+---
+
+#### Why CLS gets zero frequency (identity rotation)
+
+CLS is a global aggregation token — it collects information from all patches via attention but does not correspond to any region of the image. Assigning it a real spatial coordinate (e.g. x=0, y=0) would introduce a false spatial bias: CLS would appear "near" the top-left patches and "far" from the bottom-right patches in the rotated Q/K dot products, even though CLS should be equidistant from every patch.
+
+Zero frequency means `cos(0) = 1, sin(0) = 0` — the complex number `1 + 0j` — which is the identity rotation. Multiplying any vector by the identity leaves it unchanged. CLS gets no positional bias from RoPE at all, so attention between CLS and any patch is unaffected by their "relative position". This lets CLS attend uniformly to every patch based purely on content, not on a fictitious spatial distance.
+
+---
+
+#### Why Llama4 text RoPE uses `torch.polar` instead of `rotate_half`
+
+Llama3's `rotate_half` is real-valued: it computes cos and sin tables at full `head_dim` (by duplicating frequencies with `cat(freqs, freqs)`), then applies two elementwise multiplies and an add. It works, but the duplication step (`cat`) and the `rotate_half` rearrangement are both indirect — they exist only to simulate complex multiplication using real arithmetic.
+
+Llama4 uses `torch.polar` + `view_as_complex` to perform the same rotation as a direct complex multiply. The reasons:
+
+1. **No duplication needed** — `freqs_cis` stays at `head_dim/2` (complex), not `head_dim` (real). One complex multiply replaces two real multiplies plus an add, with no intermediate `cat`.
+2. **Cleaner pairing convention** — Llama3 uses a split-half layout (dim `i` pairs with dim `i + head_dim/2`), which is a non-obvious layout that `rotate_half` exists to handle. Llama4 uses consecutive pairs (dim 0 pairs with dim 1) — the natural layout for `view_as_complex`, matching how complex numbers are stored in memory.
+3. **Mathematical equivalence** — the complex multiply `(a + bi)(cosθ + i·sinθ) = (a·cosθ − b·sinθ) + i·(a·sinθ + b·cosθ)` is exactly the 2D rotation formula. No new math; just expressing it more directly.
+
+The tradeoff: consecutive-pair layout means Llama3 and Llama4 weight tensors are **not interchangeable** — if you load Llama3 Q/K weights into Llama4 without reordering the dimensions, the pairing is wrong and the rotations are corrupted. This is why model-loading code for Llama4 typically includes a permutation step for the attention weight matrices.
+
+---
+
+#### Why vision RoPE uses `view_as_complex` but text RoPE uses `torch.polar`
+
+Both arrive at the same complex `e^(iθ)` representation, but the construction path differs because of an intermediate step unique to vision RoPE: the `masked_fill` that zeros CLS frequencies.
+
+Vision RoPE must zero out frequencies **before** converting to complex, because the masking operates on the angle values (real floats). It manually computes `cos(freqs)` and `sin(freqs)` — after masking — then stacks and calls `view_as_complex`.
+
+Text RoPE has no such masking step (every token has a real position). It can go directly from angles to complex in one call: `torch.polar(ones, freqs)`. `torch.polar` is slightly more concise but requires the magnitude and angle to already be ready in real form — the vision RoPE's need to interleave masking between the angle computation and the complex conversion is what forces the manual `stack` + `view_as_complex` path instead.
+
+---
+
 ## 4. Vision Encoder Blocks — `Llama4VisionEncoderLayer`
 
 Unlike the text decoder's `Llama4TextDecoderLayer`, the vision encoder layers use:
