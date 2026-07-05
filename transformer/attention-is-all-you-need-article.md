@@ -415,6 +415,22 @@ flowchart TD
     class I,J,K norm
 ```
 
+**Reading the diagram top to bottom:**
+
+**Token Embeddings → Positional Encoding.** The sequence enters as a stack of raw token vectors — one per word, subword, or character depending on the tokeniser. Before any attention runs, a sinusoidal positional signal is added to each vector. This is the only place in the encoder where word order enters the model. Everything downstream is order-agnostic; it is this addition that carries the sequence structure.
+
+**Positional Encoding → Query / Key / Value Projections.** Each token's positionally-enriched vector is linearly projected three times — once to produce a Query, once a Key, once a Value. These are separate learned weight matrices, so the model is free to learn different representations for each role. A token's Query encodes what it is looking for; its Key encodes what it offers to others; its Value encodes what it actually contributes when attended to.
+
+**Q / K / V Projections → Attention Scores → Attention Weights.** Every Query is dot-producted against every Key in the sequence, yielding a matrix of raw scores — one score per token pair. These scores are divided by √d_k (the scale step) to keep the values numerically stable, then passed through softmax. Softmax converts the scaled scores into a probability distribution: the attention weights. Each token now holds a set of weights that sum to 1 across all positions, expressing how much it should attend to every other token.
+
+**Attention Weights → Single Head Output.** The attention weights are used to compute a weighted sum of the Value vectors. A token that scores high attention weight contributes heavily to the output; a token that scores low barely registers. The result — one vector per token — is the output of a single attention head: a context-enriched representation that knows not just what the token means, but which other tokens it should be informed by.
+
+**Single Head Output → Multi-Head Outputs (repeat h times).** The entire process above runs h times in parallel, each time using a different set of learned Q, K, V projection matrices. Each head attends to the sequence through a different lens. One head may learn to track subject-verb relationships; another may track coreference; another may track proximity. No head is explicitly told what to specialise in — the specialisation emerges from training.
+
+**Multi-Head Outputs → Multi-Head Attention Output (concat and linear).** The h head outputs are concatenated side by side into a single wide vector, then passed through a final linear projection (W^O) that compresses them back to the model's standard dimension. This projection is where the model learns to integrate the different perspectives each head has produced.
+
+**Multi-Head Attention Output → Add and Norm.** The original input to the attention sublayer is added back to the attention output — this is the residual connection. The sum is then layer-normalised. The residual connection ensures gradients flow cleanly during training and lets each layer refine the representation rather than rewrite it from scratch. Layer normalisation stabilises the scale of activations across the token dimension.
+
 Every token asks a question (Query), every token posts an answer (Key + Value), and the model learns — entirely from data — which questions and answers matter for the task at hand.
 
 ---
