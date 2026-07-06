@@ -1,5 +1,169 @@
 # RoPE (Rotary Position Embeddings) in Llama — explained
 
+## The Math Behind the Rotation Formula
+
+Before reading the code, it helps to understand where `x_new = x·cos(θ) − y·sin(θ)` comes from. It is not a definition — it is a consequence of basic geometry.
+
+### Step 1 — A 2D vector in polar form
+
+Draw an arrow from the origin `(0, 0)` to a point `(x, y)`. That arrow has a **length** and a **direction**. Any point can be written using those two quantities instead of x and y:
+
+```
+x = r · cos(α)
+y = r · sin(α)
+```
+
+where `r = √(x² + y²)` is the length and `α` is the angle from the positive x-axis. This is called polar form.
+
+---
+
+### Step 2 — Rotating by angle θ
+
+Rotating `(x, y)` by angle `θ` means: keep the length `r` the same, add `θ` to the direction. The new direction is `α + θ`, so:
+
+```
+x_new = r · cos(α + θ)
+y_new = r · sin(α + θ)
+```
+
+All that remains is expanding `cos(α + θ)` and `sin(α + θ)`.
+
+---
+
+### Step 3 — The angle-addition identities
+
+These are standard trigonometric identities:
+
+```
+cos(α + θ) = cos(α)·cos(θ) − sin(α)·sin(θ)
+sin(α + θ) = sin(α)·cos(θ) + cos(α)·sin(θ)
+```
+
+They hold for any angles `α` and `θ`. This is the only non-obvious step — everything else follows from substitution.
+
+---
+
+### Step 4 — Substituting to get x_new and y_new
+
+Expand `x_new = r · cos(α + θ)` using the identity:
+
+```
+x_new = r · [cos(α)·cos(θ) − sin(α)·sin(θ)]
+      = r·cos(α) · cos(θ)  −  r·sin(α) · sin(θ)
+```
+
+From Step 1, `r·cos(α) = x` and `r·sin(α) = y`. Substitute:
+
+```
+x_new = x·cos(θ) − y·sin(θ)
+```
+
+Same for `y_new = r · sin(α + θ)`:
+
+```
+y_new = r · [sin(α)·cos(θ) + cos(α)·sin(θ)]
+      = r·sin(α) · cos(θ)  +  r·cos(α) · sin(θ)
+      = y·cos(θ) + x·sin(θ)
+```
+
+The formula is a direct consequence of the angle-addition identity. No magic.
+
+---
+
+### Step 5 — The rotation matrix
+
+Both equations in one compact form:
+
+```
+[x_new]   [cos(θ)  -sin(θ)]   [x]
+[y_new] = [sin(θ)   cos(θ)] × [y]
+```
+
+This is the **2D rotation matrix**. Every 2D rotation of any vector through any angle is expressed by this matrix.
+
+---
+
+### Step 6 — Why complex multiplication gives the same result
+
+A complex number `z = x + iy` represents the same 2D point `(x, y)`.
+
+**Euler's formula:**
+```
+e^(iθ) = cos(θ) + i·sin(θ)
+```
+This is a unit complex number sitting at angle `θ` on the unit circle.
+
+**Multiplying `z` by `e^(iθ)`:**
+```
+(x + iy) · (cos(θ) + i·sin(θ))
+= x·cos(θ) + i·x·sin(θ) + i·y·cos(θ) + i²·y·sin(θ)
+
+Since i² = −1:
+= [x·cos(θ) − y·sin(θ)]  +  i·[x·sin(θ) + y·cos(θ)]
+         ↑                              ↑
+       x_new                         y_new
+```
+
+The real part is `x_new`, the imaginary part is `y_new` — the identical result. Complex multiplication and the rotation matrix are two notations for the same geometric operation. This is why Llama4 can use `torch.polar` + complex multiply and get the same rotation as Llama3's `rotate_half` + elementwise ops.
+
+---
+
+### Step 7 — How RoPE applies this to token embeddings
+
+RoPE treats each attention head's embedding vector as a list of 2D pairs. For `head_dim = 8`, there are 4 pairs: `(d₀, d₁)`, `(d₂, d₃)`, `(d₄, d₅)`, `(d₆, d₇)`.
+
+Each pair gets its own rotation angle that depends on token position `p`:
+
+```
+angle for pair i at position p  =  p × θᵢ
+where  θᵢ = 1 / (10000 ^ (2i / head_dim))
+```
+
+Early pairs (small `i`) have large `θᵢ ≈ 1.0` — they rotate fast, encoding fine local position. Later pairs have tiny `θᵢ ≈ 0.001` — they rotate slowly, encoding coarse global position. This geometric range of frequencies is the same idea as Fourier series: different frequencies capture different scales of structure.
+
+**Why this makes dot products depend on relative position:**
+
+After rotation, the dot product between a query at position `p` and a key at position `q` works out (via the angle-addition identity run in reverse) to:
+
+```
+Q_rotated · K_rotated  ≈  f(content) × cos((p − q) × θᵢ)   summed over pairs
+```
+
+The score depends only on `p − q` — the **relative distance** between the two tokens — not on their absolute positions. A query at position 100 and a key at position 97 have the same score as a query at position 5 and a key at position 2, if the content is the same. That's RoPE's core property.
+
+---
+
+### One-diagram summary
+
+```
+Original vector (x, y), length r, direction α:
+
+            (x, y)
+              ↗  length r
+             /
+            / ← angle α
+  ──────────┼──────────── x-axis
+
+After rotating by θ → new direction is α + θ:
+
+               (x_new, y_new)
+                 ↗  same length r
+                /
+               / ← angle α + θ
+  ─────────────┼───────────────
+
+Derivation:
+  x_new = r·cos(α+θ)                      [rotate direction]
+        = r·cos(α)·cos(θ) − r·sin(α)·sin(θ)   [angle-addition identity]
+        = x·cos(θ) − y·sin(θ)             [substitute x = r·cosα, y = r·sinα]
+
+  y_new = r·sin(α+θ)
+        = r·sin(α)·cos(θ) + r·cos(α)·sin(θ)
+        = y·cos(θ) + x·sin(θ)
+```
+
+---
+
 ## What this code does, at a high level
 
 This implements **Rotary Position Embeddings (RoPE)** — the mechanism Llama uses to tell attention "where" each token is in the sequence, by rotating query/key vectors based on position instead of adding a positional vector.

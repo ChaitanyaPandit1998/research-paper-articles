@@ -329,6 +329,182 @@ Llama3 casts both operands to float32 explicitly: `inv_freq_expanded.float() @ p
 
 ---
 
+### Part G — Numeric Trace: How Llama3 and Llama4 Tie Out
+
+Both approaches rotate the same pairs by the same angles and produce the same `x_new`, `y_new` numbers. The only difference is the order those numbers sit in memory at the end.
+
+**Setup:** `head_dim = 4` (2 pairs), position `p = 1`, frequencies `θ₀ = 1.0`, `θ₁ = 0.1`.
+
+Query vector — same content, different layout conventions:
+```
+Llama3 (split-half):      q = [x₀,  x₁,  y₀,  y₁]  = [0.5,  0.3,  0.8,  0.6]
+                               ←first half→  ←second half→
+                               (all x's)     (all y's)
+
+Llama4 (consecutive):     q = [x₀,  y₀,  x₁,  y₁]  = [0.5,  0.8,  0.3,  0.6]
+                               pair 0        pair 1
+```
+
+---
+
+#### Llama3 — step by step
+
+**1. Build the angle table and double it:**
+```
+freqs     = [θ₀, θ₁]         = [1.0, 0.1]           shape [2]
+
+emb = cat(freqs, freqs)       = [1.0, 0.1, 1.0, 0.1]  shape [4]   ← angle repeated for each half
+```
+Why the duplication: dim 0 `(x₀)` and dim 2 `(y₀)` are partners — they need the same angle `θ₀`. The `cat` puts `θ₀` at both positions 0 and 2.
+
+**2. Compute cos and sin at full head_dim:**
+```
+cos = [cos(1.0), cos(0.1), cos(1.0), cos(0.1)]
+    = [0.5403,   0.9950,   0.5403,   0.9950  ]
+
+sin = [sin(1.0), sin(0.1), sin(1.0), sin(0.1)]
+    = [0.8415,   0.0998,   0.8415,   0.0998  ]
+```
+
+**3. rotate_half(q):**
+```
+q             = [ x₀,  x₁,   y₀,   y₁]  = [ 0.5,  0.3,  0.8,  0.6]
+rotate_half   = [-y₀, -y₁,   x₀,   x₁]  = [-0.8, -0.6,  0.5,  0.3]
+```
+This moves `-y` into the `x` slots and `x` into the `y` slots — setting up the subtraction and addition that the rotation formula needs.
+
+**4. q × cos + rotate_half(q) × sin, slot by slot:**
+```
+dim 0 (x₀):  0.5 × 0.5403  +  (-0.8) × 0.8415  =  0.2702 − 0.6732  = −0.4030
+dim 1 (x₁):  0.3 × 0.9950  +  (-0.6) × 0.0998  =  0.2985 − 0.0599  =  0.2386
+dim 2 (y₀):  0.8 × 0.5403  +   0.5  × 0.8415   =  0.4322 + 0.4208  =  0.8530
+dim 3 (y₁):  0.6 × 0.9950  +   0.3  × 0.0998   =  0.5970 + 0.0299  =  0.6269
+```
+
+**Llama3 output (split-half layout):**
+```
+[−0.4030,  0.2386,  0.8530,  0.6269]
+  x₀_new   x₁_new   y₀_new   y₁_new
+```
+
+---
+
+#### Llama4 — step by step (same input, different path)
+
+**1. Build freqs_cis via torch.polar:**
+```
+freqs     = [1.0, 0.1]           shape [2]   ← same angle table as Llama3, NOT doubled
+
+freqs_cis = e^(i·1.0),  e^(i·0.1)
+          = cos(1.0)+i·sin(1.0),  cos(0.1)+i·sin(0.1)
+          = 0.5403+0.8415i,       0.9950+0.0998i       shape [2] complex
+```
+One complex number per pair. It carries both cos and sin inside itself — no duplication needed.
+
+**2. Reshape q into consecutive pairs:**
+```
+q (consecutive) = [0.5, 0.8, 0.3, 0.6]
+reshape(-1, 2)  = [(0.5, 0.8), (0.3, 0.6)]     ← pair 0 and pair 1 now explicit
+```
+
+**3. view_as_complex — treat each (a, b) pair as a + bi:**
+```
+xq_ = [0.5+0.8i,   0.3+0.6i]   shape [2] complex
+```
+
+**4. Complex multiply xq_ × freqs_cis, pair by pair:**
+
+Pair 0: `(0.5 + 0.8i) × (0.5403 + 0.8415i)`
+```
+= 0.5×0.5403  +  0.5×0.8415i  +  0.8i×0.5403  +  0.8i×0.8415i
+= 0.2702       +  0.4208i       +  0.4322i       +  0.6732·i²
+= 0.2702       +  0.4208i       +  0.4322i       −  0.6732      (since i²=−1)
+
+real part:  0.2702 − 0.6732 = −0.4030   ← x₀_new ✓
+imag part:  0.4208 + 0.4322 =  0.8530   ← y₀_new ✓
+```
+
+Pair 1: `(0.3 + 0.6i) × (0.9950 + 0.0998i)`
+```
+= 0.3×0.9950  +  0.3×0.0998i  +  0.6i×0.9950  +  0.6i×0.0998i
+= 0.2985       +  0.0299i       +  0.5970i       −  0.0599
+
+real part:  0.2985 − 0.0599 =  0.2386   ← x₁_new ✓
+imag part:  0.0299 + 0.5970 =  0.6269   ← y₁_new ✓
+```
+
+**5. view_as_real → flatten:**
+```
+[(−0.4030, 0.8530),  (0.2386, 0.6269)]   → flatten →
+
+[−0.4030,  0.8530,  0.2386,  0.6269]
+  x₀_new   y₀_new   x₁_new   y₁_new
+```
+
+**Llama4 output (consecutive layout):**
+```
+[−0.4030,  0.8530,  0.2386,  0.6269]
+  x₀_new   y₀_new   x₁_new   y₁_new
+```
+
+---
+
+#### The tie-out
+
+```
+Llama3 output: [−0.4030,  0.2386,  0.8530,  0.6269]   split-half:   all x_new | all y_new
+Llama4 output: [−0.4030,  0.8530,  0.2386,  0.6269]   consecutive:  pair0     | pair1
+
+Same 4 numbers. Different order.
+```
+
+The rotation values `x₀_new = −0.4030`, `y₀_new = 0.8530`, `x₁_new = 0.2386`, `y₁_new = 0.6269` are identical in both. The memory layout is the only difference.
+
+---
+
+#### Why the mechanisms are equivalent — the structural map
+
+Every step in Llama3 has a direct counterpart in Llama4:
+
+```
+Llama3 step                               Llama4 counterpart
+─────────────────────────────────────────────────────────────────────────────
+cat(freqs, freqs)                         not needed — torch.polar encodes both
+  duplicates θ so the same angle            cos(θ) and sin(θ) in one complex
+  appears at both the x-slot and y-slot     number; no need to duplicate
+
+cos = emb.cos()                           freqs_cis = torch.polar(ones, freqs)
+sin = emb.sin()                             = e^(iθ) = cos(θ) + i·sin(θ)
+                                            both in one value, not two tensors
+
+q layout [x₀,x₁,y₀,y₁]                  q layout [x₀,y₀,x₁,y₁]
+  x and y split to halves so                x and y consecutive so
+  rotate_half can swap them                 reshape(-1,2) can pair them
+
+rotate_half:                              reshape(-1,2) + view_as_complex:
+  [-y₀,-y₁, x₀,x₁]                        [(x₀+iy₀), (x₁+iy₁)]
+  rearranges to create the                  groups x and y as a
+  subtraction and addition                  single complex number
+  terms needed for rotation
+
+q*cos + rotate_half(q)*sin                xq_ * freqs_cis
+  two elementwise ops                       one complex multiply
+  x_new = x·cosθ − y·sinθ                  real part  = x·cosθ − y·sinθ
+  y_new = x·sinθ + y·cosθ                  imag part  = x·sinθ + y·cosθ
+
+output stays flat [x₀_new,x₁_new,...]    view_as_real + flatten
+  no reshape needed                         converts complex result back
+                                            to real flat tensor
+─────────────────────────────────────────────────────────────────────────────
+```
+
+The short version: `cat(freqs, freqs)` + `rotate_half` is Llama3 manually doing in real arithmetic what `torch.polar` + complex multiplication does in one step. The problem they both solve is the same: **how do you multiply `x` by `cosθ` and subtract `y·sinθ` in the same vectorized operation**, when `x` and `y` are stored as separate numbers in a flat array?
+
+- Llama3's answer: duplicate the angles, rearrange the vector so `-y` lands where `x` was, then multiply-add.
+- Llama4's answer: group `x` and `y` into a complex number, then use the definition of complex multiplication (which is the rotation formula).
+
+---
+
 ## Step 3 — RoPE vs NoPE per Layer (Llama4 only)
 
 **Llama3:** every layer uses RoPE, no exceptions.
