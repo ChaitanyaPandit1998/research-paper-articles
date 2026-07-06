@@ -505,6 +505,130 @@ The short version: `cat(freqs, freqs)` + `rotate_half` is Llama3 manually doing 
 
 ---
 
+### Part H — Which method is more efficient, and why
+
+The short answer: **FLOPs are identical. Llama4 wins on memory allocations. Llama3 wins in practice via fused CUDA kernels.**
+
+---
+
+#### FLOPs — identical
+
+For one rotation pair `(x, y)` by angle `θ`, both methods do exactly:
+```
+4 multiplications  (x·cosθ, y·sinθ, x·sinθ, y·cosθ)
+2 additions        (x·cosθ − y·sinθ,  x·sinθ + y·cosθ)
+= 6 FLOPs per pair
+```
+
+Llama3: `(q * cos) + (rotate_half(q) * sin)` — 2 elementwise multiplies + 1 elementwise add across head_dim values.
+Llama4: `(a + bi) * (cosθ + i·sinθ)` — complex multiply, which PyTorch expands to the same 4 multiplies + 2 adds.
+
+Neither approach reduces the arithmetic. The differences are entirely in the surrounding overhead.
+
+---
+
+#### Memory allocations — Llama4 is cleaner
+
+Count the tensors that must be **newly allocated** (not views) in the hot path:
+
+```
+Llama3                                      Llama4
+─────────────────────────────────────────── ────────────────────────────────────────────
+cat(freqs, freqs)      → allocates [B,S,D]  torch.polar(ones, freqs) → allocates [B,S,D/2] complex
+cos = emb.cos()        → allocates [B,S,D]  (no separate cos tensor)
+sin = emb.sin()        → allocates [B,S,D]  (no separate sin tensor)
+rotate_half:                                reshape(-1,2)              → view, free
+  cat((-x2, x1))       → allocates [B,H,S,D]  view_as_complex         → view, free
+q * cos                → allocates [B,H,S,D]  xq_ * freqs_cis         → allocates [B,S,H,D/2]
+rotate_half(q) * sin   → allocates [B,H,S,D]  view_as_real            → view, free
+final add              → allocates [B,H,S,D]  flatten                 → view, free
+─────────────────────────────────────────── ────────────────────────────────────────────
+~6 allocations                              ~2 allocations
+```
+
+`reshape`, `view_as_complex`, `view_as_real`, and `flatten` are all **zero-copy views** in PyTorch — they reinterpret existing memory without copying. `cat` and elementwise ops always allocate new tensors.
+
+Fewer allocations means less pressure on the GPU memory allocator and fewer round-trips through memory bandwidth — which matters more than FLOPs at the sizes typical of LLM inference.
+
+---
+
+#### The duplication cost — Llama3's biggest overhead
+
+`cat(freqs, freqs)` doubles the frequency table from `[B, S, head_dim/2]` to `[B, S, head_dim]`. This is not a free view — it copies data. The cos and sin tables are then each `[B, S, head_dim]`, twice the size they need to be.
+
+Llama4 never duplicates. `freqs_cis` stays at `[B, S, head_dim/2]` complex. The two float32 values per complex number are the cos and sin — same total bytes as one `[B, S, head_dim]` real tensor, but without the copy or the separate sin tensor.
+
+```
+Llama3 frequency memory footprint:
+  cos tensor: B × S × head_dim floats
+  sin tensor: B × S × head_dim floats
+  total:      2 × B × S × head_dim floats
+
+Llama4 frequency memory footprint:
+  freqs_cis:  B × S × head_dim/2 complex  =  B × S × head_dim floats (one complex = 2 floats)
+  total:      1 × B × S × head_dim floats
+```
+
+Llama4 uses half the memory for the frequency tables while storing the same information.
+
+---
+
+#### The rotate_half cost — a hidden memory write
+
+`rotate_half` constructs `[-y₀, -y₁, ..., x₀, x₁, ...]` by calling `torch.cat((-x2, x1), dim=-1)`. That `cat` allocates a full new `[B, heads, S, head_dim]` tensor — which is the largest tensor in the whole attention block. It then gets discarded after the multiply-add. This is a write-then-immediately-discard pattern that burns memory bandwidth.
+
+Llama4's `reshape(-1, 2)` + `view_as_complex` does the same conceptual grouping of pairs with zero allocation — they are just different interpretations of the same memory.
+
+---
+
+#### Where Llama3 wins — the fused kernel hook
+
+Despite more allocations, Llama3's `apply_rotary_pos_emb` has this decorator:
+
+```python
+@use_kernel_func_from_hub("rotary_pos_emb")
+def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
+    ...
+```
+
+This allows the entire function to be replaced at runtime with a **fused CUDA or Triton kernel** from the Hub. Fused kernels matter because they eliminate every intermediate allocation:
+
+```
+Without fusion (what we've been counting):
+  Step 1: allocate rotate_half output → write to GPU memory
+  Step 2: allocate q*cos output       → write to GPU memory
+  Step 3: allocate rotate_half*sin    → write to GPU memory
+  Step 4: allocate final sum          → write to GPU memory
+
+With a fused kernel:
+  One kernel reads q, cos, sin once
+  Computes all four steps in registers
+  Writes the final result once
+  Zero intermediate allocations
+```
+
+Fused kernels are 2–4× faster than the naive PyTorch sequence in practice because they avoid the round-trips through GPU memory. Libraries like FlashAttention and xFormers ship exactly these fused RoPE kernels.
+
+Llama4's `apply_rotary_emb` has **no such decorator** — it always runs the Python/PyTorch path. PyTorch's `torch.compile` can fuse it, but there is no explicit hook for a hand-written kernel.
+
+---
+
+#### Summary
+
+| | Llama3 (`rotate_half`) | Llama4 (complex) |
+|---|---|---|
+| FLOPs per pair | 6 (4 mul + 2 add) | 6 (4 mul + 2 add) |
+| Intermediate allocations | ~6 | ~2 |
+| Frequency table memory | 2 × `[B,S,head_dim]` real | 1 × `[B,S,head_dim/2]` complex |
+| `cat` copies in hot path | 2 (`emb` + `rotate_half`) | 0 |
+| Fused kernel hook | Yes — `@use_kernel_func_from_hub` | No |
+| With a fused kernel | Fastest in practice | Not applicable |
+| Without fusion (PyTorch only) | More allocations, more memory | Fewer allocations, half the freq memory |
+
+**Bottom line:** in pure PyTorch, Llama4's complex approach is cleaner and uses less memory. In a production deployment where a fused CUDA kernel is loaded (which is the common case for Llama3-family models via FlashAttention), Llama3's real-valued approach wins decisively because the kernel eliminates all intermediate allocations and does everything in registers. Llama4's complex approach trades the fused-kernel advantage for cleaner code and a smaller memory footprint on the frequency tables.
+
+---
+
 ## Step 3 — RoPE vs NoPE per Layer (Llama4 only)
 
 **Llama3:** every layer uses RoPE, no exceptions.
