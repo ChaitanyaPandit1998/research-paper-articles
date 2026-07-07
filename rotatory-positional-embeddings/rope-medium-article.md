@@ -73,6 +73,32 @@ Token at position $m$ gets its Query and Key vectors rotated by $m \times \theta
 
 **What this means geometrically.** Every token's Query and Key are rotated by an amount proportional to their position. A token at position 3 is rotated three times as far as a token at position 1. Tokens at position 0 are not rotated at all.
 
+### Where the Formula Comes From
+
+The rotation formula is not a definition — it follows from three lines of geometry.
+
+**Step 1 — Write (x, y) in polar form.**
+Any 2D point can be described by its length $r$ and direction $\alpha$ instead of its coordinates:
+$$x = r\cos\alpha \qquad y = r\sin\alpha$$
+
+**Step 2 — Rotating by $\theta$ means adding $\theta$ to the direction.**
+The length stays the same; only the angle changes:
+$$x_\text{new} = r\cos(\alpha + \theta) \qquad y_\text{new} = r\sin(\alpha + \theta)$$
+
+**Step 3 — Expand using the angle-addition identity.**
+$$\cos(\alpha + \theta) = \cos\alpha\cos\theta - \sin\alpha\sin\theta$$
+$$\sin(\alpha + \theta) = \sin\alpha\cos\theta + \cos\alpha\sin\theta$$
+
+Substitute $r\cos\alpha = x$ and $r\sin\alpha = y$:
+
+$$\boxed{x_\text{new} = x\cos\theta - y\sin\theta \qquad y_\text{new} = x\sin\theta + y\cos\theta}$$
+
+In matrix form:
+
+$$\begin{pmatrix} x_\text{new} \\ y_\text{new} \end{pmatrix} = \begin{pmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{pmatrix} \begin{pmatrix} x \\ y \end{pmatrix}$$
+
+RoPE applies this rotation to each dimension pair in the Query and Key vectors, with $\theta = m \times \theta_i$ — position $m$ scaled by the pair's base frequency. The angle-addition identity is also what makes the relative distance property work: when you take the dot product of two rotated vectors, the absolute positions cancel and only $(m - n)$ survives.
+
 ### Why Rotation Encodes Relative Distance
 
 The critical property of RoPE emerges when you compute the attention score - the dot product between a rotated Query and a rotated Key.
