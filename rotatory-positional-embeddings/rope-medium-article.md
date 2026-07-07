@@ -125,6 +125,122 @@ Under RoPE, when the attention layer computes the score between "cat" (position 
 
 ---
 
+## Worked Examples
+
+### Example 1 — Sinusoidal PE in Numbers
+
+**Setup:** sentence "The cat sat on the mat", `d_model = 4`, positions start at 0.
+
+With `d_model = 4`, there are two frequency pairs:
+- Pair 0 (`i = 0`): divisor = $10000^{0/4} = 1$ → frequency = 1.0 (fast hand)
+- Pair 1 (`i = 1`): divisor = $10000^{2/4} = 100$ → frequency = 0.01 (slow hand)
+
+The positional vector added to each token embedding:
+
+```
+Token     Position   dim 0         dim 1         dim 2         dim 3
+                     sin(pos×1.0)  cos(pos×1.0)  sin(pos×0.01) cos(pos×0.01)
+────────────────────────────────────────────────────────────────────────────
+"cat"     1          sin(1)= 0.841 cos(1)= 0.540 sin(0.01)=0.010 cos(0.01)=1.000
+"sat"     2          sin(2)= 0.909 cos(2)=-0.416 sin(0.02)=0.020 cos(0.02)=1.000
+"mat"     5          sin(5)=-0.959 cos(5)= 0.284 sin(0.05)=0.050 cos(0.05)=0.999
+```
+
+**What to notice:**
+
+Dims 0–1 (high frequency, fast hand) change dramatically between "cat" and "mat": `0.841` → `-0.959`. These dimensions distinguish nearby tokens sharply.
+
+Dims 2–3 (low frequency, slow hand) barely move: `0.010` → `0.050`. A full cycle takes thousands of positions. These dimensions encode coarse, long-range order.
+
+Every position gets a unique fingerprint across the four dimensions — that fingerprint is what gets added to the token embedding at the input layer, before attention ever runs.
+
+**The limitation in plain sight:** "cat" at position 1 always gets `[0.841, 0.540, 0.010, 1.000]`, regardless of the sentence it appears in or which other tokens it needs to relate to. The signal is fixed and absolute. The model must then learn, from training data, to infer from these absolute signals what the relative distance between "cat" and "mat" actually is.
+
+---
+
+### Example 2 — RoPE Rotation, Step by Step
+
+**Setup:** `head_dim = 2` (one dimension pair, the simplest possible case). Highest frequency pair: $\theta_0 = 1/10000^0 = 1.0$.
+
+**The query and key vectors** (the 2D content the model has learned for these words):
+```
+q ("cat") = [0.8, 0.6]
+k ("mat") = [0.6, 0.8]
+```
+
+**Step 1 — Before rotation (no position information)**
+
+```
+q · k = 0.8×0.6 + 0.6×0.8 = 0.96
+```
+
+A score of 0.96. The model sees "cat" and "mat" as very similar — because their content vectors are similar. No position information is present. The model cannot tell that they are four positions apart.
+
+**Step 2 — Rotate q by "cat"'s position angle (position 1)**
+
+Rotation angle: $m \times \theta_0 = 1 \times 1.0 = 1.0$ radian.
+
+$$\begin{pmatrix} q_1' \\ q_2' \end{pmatrix} = \begin{pmatrix} \cos(1.0) & -\sin(1.0) \\ \sin(1.0) & \cos(1.0) \end{pmatrix} \begin{pmatrix} 0.8 \\ 0.6 \end{pmatrix}$$
+
+```
+q' = [0.8×0.540 − 0.6×0.841,   0.8×0.841 + 0.6×0.540]
+   = [0.432 − 0.505,             0.673 + 0.324]
+   = [−0.073,  0.997]
+```
+
+**Step 3 — Rotate k by "mat"'s position angle (position 5)**
+
+Rotation angle: $n \times \theta_0 = 5 \times 1.0 = 5.0$ radians.
+
+```
+k' = [0.6×cos(5.0) − 0.8×sin(5.0),   0.6×sin(5.0) + 0.8×cos(5.0)]
+   = [0.6×0.284 − 0.8×(−0.959),       0.6×(−0.959) + 0.8×0.284]
+   = [0.170 + 0.767,                    −0.575 + 0.227]
+   = [0.937,  −0.348]
+```
+
+**Step 4 — Compute the attention score**
+
+```
+q' · k' = (−0.073)(0.937) + (0.997)(−0.348)
+        = −0.068 − 0.347
+        = −0.415
+```
+
+The score dropped from **0.96** (no position) to **−0.42** (with position). The rotation has injected the information that "cat" and "mat" are not at the same place — their angular difference (5.0 − 1.0 = 4.0 radians) has been folded directly into the score.
+
+---
+
+### Example 3 — The Relative Distance Property
+
+This is the central claim of RoPE: the attention score after rotation depends only on *how far apart* the tokens are, not on *where* they are in the sentence. Here it is in numbers.
+
+Same content vectors throughout: q = [0.8, 0.6], k = [0.6, 0.8], θ₀ = 1.0.
+
+**Three different pairs, all exactly 2 positions apart:**
+
+```
+Pair          m    n    gap   q rotated by m     k rotated by n     score
+──────────────────────────────────────────────────────────────────────────
+positions 1,3  1    3    2    [−0.073,  0.997]   [−0.707, −0.707]   −0.65
+positions 5,7  5    7    2    [ 0.802, −0.597]   [−0.073,  0.997]   −0.65
+positions 10,12 10  12   2    [−0.345, −0.939]   [ 0.936,  0.353]   −0.65
+```
+
+The rotated vectors look completely different at each pair of positions — but the dot product is the same every time: **−0.65**.
+
+The absolute positions 1, 5, 10 have disappeared. Only the gap of 2 survives in the score.
+
+**Why this happens — one line of algebra:**
+
+$$q' \cdot k' = q^\top R(m\theta)^\top R(n\theta)\, k = q^\top R\bigl((n-m)\theta\bigr)\, k$$
+
+Since $R(m\theta)^\top = R(-m\theta)$ (rotation matrices are orthogonal), the $m$ and $n$ terms cancel and only $n - m$ remains. The score is a function of the content vectors and the *gap* — nothing else.
+
+Compare this to sinusoidal PE: the position signal is added to the embedding before attention runs. By the time the dot product is computed, absolute position information from *both* tokens is mixed into their representations with no such clean cancellation. The model must learn, from data, to recover relative distance from two absolute signals. RoPE delivers relative distance directly, by construction.
+
+---
+
 ## What RoPE Does Not Solve
 
 Objectivity requires noting that RoPE is not the end of the story.
