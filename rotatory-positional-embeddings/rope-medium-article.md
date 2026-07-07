@@ -1,0 +1,162 @@
+# From Fixed Signals to Rotating Vectors: Why RoPE Is Replacing Positional Embeddings
+
+**Pull quotes:**
+- "Sinusoidal positional encoding is a patch bolted onto a model that has no native sense of order. RoPE weaves position into the attention mechanism itself."
+- "The Transformer doesn't know that 'dog' comes before 'bites' unless you tell it. Positional encoding is how you tell it."
+- "RoPE doesn't ask the model to memorise absolute positions. It encodes relative distance - and that turns out to be exactly what attention needs."
+
+---
+
+When the "Attention Is All You Need" paper introduced the Transformer in 2017, it quietly acknowledged a problem in a single paragraph: self-attention has no concept of word order. Feed it "dog bites man" and "man bites dog," and - without additional signals - it sees the same three words in the same bag. The fix the authors proposed, sinusoidal positional encoding, was elegant and effective enough to ship. It was not, as the years since have demonstrated, the final answer.
+
+This article explains what positional encoding does, why the sinusoidal version has limits, and how Rotary Position Embedding (RoPE) - now the dominant approach in modern language models including Llama, Mistral, and Qwen - addresses those limits without complicating the architecture.
+
+---
+
+## The Problem: Self-Attention Is Order-Blind
+
+Self-attention computes relationships between tokens by comparing their Query and Key vectors. The computation is a set operation - it does not care which token came first. This is both the architecture's great strength (full parallelism, no sequential bottleneck) and its structural blind spot.
+
+For language, order is not decorative. "The cat sat on the mat" and "The mat sat on the cat" contain identical tokens with opposite meanings. A model that cannot distinguish position cannot parse the difference.
+
+Positional encoding is the solution: inject an order-aware signal into each token's representation so that even though the attention computation itself is order-blind, the inputs it receives carry position information. The question every approach to positional encoding tries to answer is: what signal, and how?
+
+---
+
+## Sinusoidal Positional Encoding: The Original Fix
+
+The 2017 paper added a fixed vector to each token embedding before it entered the attention layers. That vector was computed from sine and cosine functions at different frequencies:
+
+$$PE_{(pos,\, 2i)} = \sin\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right)$$
+
+$$PE_{(pos,\, 2i+1)} = \cos\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right)$$
+
+Where `pos` is the token's position in the sequence, `i` is the dimension index, and `d_model` is the embedding dimension.
+
+**The intuition.** Think of it like a clock with many hands, each moving at a different speed. The fastest hand (high-frequency dimensions) ticks every few positions - distinguishing nearby tokens. The slowest hand (low-frequency dimensions) completes a full cycle over thousands of positions - encoding long-range order. Every position gets a unique combination of hand positions, and that combination is the positional signal.
+
+**Why sinusoids specifically?** The authors noted that the relative position between any two tokens can be expressed as a linear transformation of their encodings. This means the model can, in principle, learn to attend based on distance rather than absolute position - without being explicitly trained to do so.
+
+### What Works Well
+
+- **No parameters.** The encoding is purely mathematical, computed once and fixed. It adds no trainable weight to the model.
+- **Extrapolation by design.** Because the frequencies are continuous functions, the model can, in theory, generalise to positions it never saw during training.
+- **Computationally trivial.** Adding a vector to an embedding costs nothing compared to the rest of the forward pass.
+
+### Where It Falls Short
+
+**1. Position information degrades through the layers.** Positional encoding adds a signal to the token embedding at the input layer. By the time that embedding has passed through six or more layers of attention and feed-forward transformations, the positional signal has been mixed, overwritten, and diluted. The model must somehow preserve position information through transformations it was not specifically designed to propagate.
+
+**2. Absolute position is not what attention needs.** What matters in language is not that "dog" is at position 4 in an absolute sense. What matters is that "dog" is two positions before "bites." Self-attention computes a dot product between a Query and a Key - a relative comparison. Injecting absolute position at the input and hoping the model infers relative distance from it is an indirect route.
+
+**3. Poor length generalisation in practice.** While sinusoidal encoding is theoretically continuous, models trained on sequences up to length 512 consistently degrade on sequences of length 1024 or longer. The model has seen position vectors for positions 0–511 during training; the positions 512–1023 are mathematically defined but contextually unfamiliar. Empirically, this generalisation often does not hold (Press et al., 2021; Su et al., 2024).
+
+**4. Learned embeddings are even more brittle.** Some early Transformer variants replaced sinusoidal encodings with a learned embedding table - one vector per position, trained from data. These perform comparably or marginally better within the training distribution but extrapolate even worse: there is simply no learned vector for positions the model never saw.
+
+---
+
+## Rotary Position Embedding (RoPE)
+
+RoPE, introduced by Su et al. in the paper "RoFormer: Enhanced Transformer with Rotary Position Embedding" (2021), takes a fundamentally different approach. Rather than adding a position signal to token embeddings at the input, RoPE encodes position by rotating the Query and Key vectors inside the attention computation itself.
+
+### The Core Idea
+
+In 2D, rotating a vector $(x_1, x_2)$ by angle $\theta$ gives:
+
+$$\begin{pmatrix} x_1' \\ x_2' \end{pmatrix} = \begin{pmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{pmatrix} \begin{pmatrix} x_1 \\ x_2 \end{pmatrix}$$
+
+RoPE applies this idea across the full head dimension by treating embedding dimensions in pairs - (dim 0, dim 1), (dim 2, dim 3), and so on - and rotating each pair by an angle that depends on the token's position:
+
+$$\theta_i = \frac{1}{10000^{2i/d}}$$
+
+Token at position $m$ gets its Query and Key vectors rotated by $m \times \theta_i$ for each dimension pair $i$.
+
+**What this means geometrically.** Every token's Query and Key are rotated by an amount proportional to their position. A token at position 3 is rotated three times as far as a token at position 1. Tokens at position 0 are not rotated at all.
+
+### Why Rotation Encodes Relative Distance
+
+The critical property of RoPE emerges when you compute the attention score - the dot product between a rotated Query and a rotated Key.
+
+For a query at position $m$ and a key at position $n$, their dot product depends only on their content vectors and the rotation angle $m - n$:
+
+$$q_m \cdot k_n = f(x_m, x_n, m - n)$$
+
+The absolute positions $m$ and $n$ disappear. What survives is their difference - the relative distance. This is exactly the information self-attention needs. The model does not need to learn to infer relative position from absolute signals; the mechanism provides it directly.
+
+This property is sometimes called relative position encoding by construction - it is a mathematical consequence of the rotation, not a learned behaviour.
+
+---
+
+## Side-by-Side Comparison
+
+| | Sinusoidal PE | Learned PE | RoPE |
+|---|---|---|---|
+| Where applied | Input embedding (additive) | Input embedding (additive) | Inside attention (multiplicative rotation) |
+| Trainable parameters | None | Yes (one vector per position) | None |
+| Encodes | Absolute position | Absolute position | Relative position (by construction) |
+| Length generalisation | Limited in practice | Poor — no vector beyond training length | Strong — continuous rotation scales naturally |
+| Attention score dependency | Indirect (model must learn to infer distance) | Indirect | Direct — score is a function of m−n only |
+| Used in | Original Transformer (2017), BERT | GPT-2 | Llama, Mistral, Qwen, Falcon, and most modern LLMs |
+| Compute overhead | Negligible (one addition) | Negligible (one lookup) | Negligible (one addition) |
+
+---
+
+## Why Modern LLMs Chose RoPE
+
+RoPE is not merely a theoretical improvement. The shift to RoPE in production models reflects empirical results that consistently favour it over the alternatives.
+
+**Long-context performance.** Models using RoPE generalise better to sequence lengths beyond their training distribution. Extensions such as YaRN (Peng et al., 2023) and Dynamic NTK scaling further extend RoPE-based models to context lengths of 128K tokens and beyond - capabilities that sinusoidal encoding cannot reach without significant degradation.
+
+**Position information stays in the attention layer.** Because RoPE is applied to Q and K rather than to the input embeddings, the positional signal does not need to survive multiple layers of transformation. It is injected at the point of use. This makes the positional information structurally robust across model depth.
+
+**No interference with token semantics.** Sinusoidal PE adds a fixed vector to the token embedding, mixing positional and semantic signals at the representation level. RoPE keeps them separate - the token embedding carries meaning, the rotation carries position. The attention mechanism sees both without conflating them.
+
+**Compatibility with GQA and Flash Attention.** RoPE is applied per-head to Q and K before the attention dot product, which means it composes naturally with Grouped Query Attention (GQA) and hardware-optimised attention kernels like Flash Attention. The rotation is just a pair of matrix operations; it does not change the attention computation's structure.
+
+---
+
+## A Concrete Example
+
+Suppose you have a sentence: "The cat sat on the mat."
+
+Under sinusoidal PE, each token receives a fixed positional vector added to its embedding at the input layer. By the time the attention computation runs six layers later, "cat" (position 1) and "mat" (position 5) carry the memory of their original signals - but that memory has been processed through six rounds of mixing. The model must learn, from data, to use whatever positional trace remains.
+
+Under RoPE, when the attention layer computes the score between "cat" (position 1) and "mat" (position 5), the query vector for "cat" has been rotated by $1 \times \theta$ and the key vector for "mat" has been rotated by $5 \times \theta$. Their dot product is a function of $5 - 1 = 4$ - the relative distance - regardless of their absolute positions. A model fine-tuned on sequences of length 512 and deployed on a sequence of length 2048 still sees relative distances expressed as the same angular differences. The mechanism extrapolates continuously.
+
+---
+
+## What RoPE Does Not Solve
+
+Objectivity requires noting that RoPE is not the end of the story.
+
+**Attention is still O(n²).** RoPE improves how position is encoded; it does not change the cost of computing attention over long sequences. At 100K tokens, quadratic complexity remains a hard practical constraint.
+
+**Rotational symmetry has limits.** RoPE encodes position as a rotation angle. Very long sequences require large angles, and eventually the rotation wraps around - a phenomenon called frequency aliasing at very long ranges. YaRN, LongRoPE, and similar extensions address this at the cost of additional complexity.
+
+**The relative position property holds exactly only in the full-attention case.** With certain attention variants (sliding window, sparse attention), the clean $m - n$ dependency is disrupted. The interaction between RoPE and non-standard attention patterns is an active area of research.
+
+---
+
+## Key Takeaways
+
+- **Self-attention is order-blind.** Positional encoding is the mechanism that gives Transformer models a sense of sequence order - without it, word order is invisible to the model.
+- **Sinusoidal PE works by addition.** It injects a fixed signal into token embeddings before the attention layers. It is parameter-free and theoretically continuous, but encodes absolute position and generalises poorly to lengths beyond training.
+- **Learned PE trades flexibility for brittleness.** It can fit the training distribution well but fails entirely beyond the vocabulary of positions it saw during training.
+- **RoPE works by rotation.** It encodes position inside the attention mechanism by rotating Query and Key vectors, not by modifying embeddings. The resulting dot product depends only on relative distance - the information attention actually needs.
+- **RoPE is now the industry standard for good reason:** better length generalisation, no additional parameters, and a clean separation between semantic and positional information.
+
+---
+
+## Further Reading
+
+- **"Attention Is All You Need"** (Vaswani et al., 2017) — the paper that introduced sinusoidal positional encoding and the Transformer architecture. The positional encoding section (Section 3.5) is brief but worth reading directly: arxiv.org/abs/1706.03762
+
+- **"RoFormer: Enhanced Transformer with Rotary Position Embedding"** (Su et al., 2021) — the original RoPE paper. The derivation of the relative position property from first principles is clear and accessible: arxiv.org/abs/2104.09864
+
+- **"Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation"** (Press et al., 2021) — a systematic study of length generalisation failures in standard positional encodings, and the ALiBi alternative: arxiv.org/abs/2108.12409
+
+- **"YaRN: Efficient Context Window Extension of Large Language Models"** (Peng et al., 2023) — the extension that pushed RoPE-based models to 128K context windows. Required reading if you are working on long-context fine-tuning: arxiv.org/abs/2309.00071
+
+---
+
+The 2017 paper that introduced sinusoidal positional encoding described it as "a patch" - something to handle the order-blindness of self-attention without complicating the architecture. Four years later, RoPE proved that the patch could be replaced by something structurally cleaner. The core lesson is the same one the Transformer itself taught: the right abstraction, even for a seemingly minor problem, compounds.
