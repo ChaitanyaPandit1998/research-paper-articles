@@ -27,9 +27,9 @@ Positional encoding is the solution: inject an order-aware signal into each toke
 
 The 2017 paper added a fixed vector to each token embedding before it entered the attention layers. That vector was computed from sine and cosine functions at different frequencies:
 
-$$PE_{(pos,\, 2i)} = \sin\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right)$$
+$$PE_{(pos, 2i)} = \sin(\frac{pos}{10000^{2i/d_{\text{model}}}})$$
 
-$$PE_{(pos,\, 2i+1)} = \cos\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right)$$
+$$PE_{(pos, 2i+1)} = \cos(\frac{pos}{10000^{2i/d_{\text{model}}}})$$
 
 Where `pos` is the token's position in the sequence, `i` is the dimension index, and `d_model` is the embedding dimension.
 
@@ -263,7 +263,7 @@ The absolute positions 1, 5, 10 have disappeared. Only the gap of 2 survives in 
 
 **Why this happens — one line of algebra:**
 
-$$q' \cdot k' = q^\top R(m\theta)^\top R(n\theta)\, k = q^\top R\bigl((n-m)\theta\bigr)\, k$$
+$$q' \cdot k' = q^\top R(m\theta)^\top R(n\theta) k = q^\top R((n-m)\theta) k$$
 
 Since $R(m\theta)^\top = R(-m\theta)$ (rotation matrices are orthogonal), composing the two rotations gives $R(-m\theta) \cdot R(n\theta) = R((n-m)\theta)$. Undoing a rotation by $m$ and then applying $n$ is the same as just applying $n - m$. The absolute positions cancel exactly; only the gap remains. The score is a function of the content vectors and the *gap* — nothing else.
 
