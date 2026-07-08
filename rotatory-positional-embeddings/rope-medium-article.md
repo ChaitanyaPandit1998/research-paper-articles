@@ -47,7 +47,7 @@ Where `pos` is the token's position in the sequence, `i` is the dimension index,
 
 **1. Position information degrades through the layers.** Positional encoding adds a signal to the token embedding at the input layer. By the time that embedding has passed through six or more layers of attention and feed-forward transformations, the positional signal has been mixed, overwritten, and diluted. The model must somehow preserve position information through transformations it was not specifically designed to propagate.
 
-**2. Absolute position is not what attention needs.** What matters in language is not that "dog" is at position 4 in an absolute sense. What matters is that "dog" is two positions before "bites." Self-attention computes a dot product between a Query and a Key - a relative comparison. Injecting absolute position at the input and hoping the model infers relative distance from it is an indirect route.
+**2. Absolute position is not what attention needs.** What matters in language is not that "dog" is at position 4 in an absolute sense. What matters is that "dog" is two positions before "bites." Consider looking for your keys: you don't think "third drawer from the left in the kitchen" — you think "two drawers down from where I'm standing." The second description is relative and immediately useful; the first is absolute and requires a separate calculation to become useful. Self-attention is always asking the relative question — how related are these two tokens to each other? — yet sinusoidal PE answers an absolute one and leaves the model to do the conversion.
 
 **3. Poor length generalisation in practice.** While sinusoidal encoding is theoretically continuous, models trained on sequences up to length 512 consistently degrade on sequences of length 1024 or longer. The model has seen position vectors for positions 0–511 during training; the positions 512–1023 are mathematically defined but contextually unfamiliar. Empirically, this generalisation often does not hold (Press et al., 2021; Su et al., 2021).
 
@@ -98,6 +98,8 @@ This is the rotation matrix shown above — derived, not assumed. RoPE applies i
 ### Why Rotation Encodes Relative Distance
 
 The critical property of RoPE emerges when you compute the attention score - the dot product between a rotated Query and a rotated Key.
+
+**The geometric picture.** Imagine two clock hands. Rotate one by 30° and another by 50°. The angle *between* them is 20°, regardless of where they started. Change both starting positions — rotate the first by 100° and the second by 120° — and the angle between them is still 20°. The dot product between two vectors behaves the same way: it measures alignment, which depends on the angle *between* them, not on their absolute orientations. By encoding position as a rotation angle, RoPE guarantees that the dot product sees only the *difference* in positions.
 
 For a query at position $m$ and a key at position $n$, their dot product depends only on their content vectors and the rotation angle $m - n$:
 
@@ -229,7 +231,9 @@ q' · k' = (−0.073)(0.937) + (0.997)(−0.348)
         = −0.415
 ```
 
-The score dropped from **0.96** (no position) to **−0.42** (with position). The rotation has injected the information that "cat" and "mat" are not at the same place — their angular difference (5.0 − 1.0 = 4.0 radians) has been folded directly into the score.
+The score dropped from **0.96** (no position) to **−0.42** (with position).
+
+To see why, think geometrically. Before rotation, q = [0.8, 0.6] and k = [0.6, 0.8] are nearly aligned — they point in almost the same direction, which is why their dot product is close to 1. After rotation, q has been turned by 1 radian and k by 5 radians. The gap between them is 4 radians, which is just past π (≈ 3.14 radians). Two vectors separated by close to π point in nearly *opposite* directions — that is why the score went negative. The rotation didn't change the vectors' lengths or their semantic content; it spun them to different parts of the circle to reflect the fact that "cat" and "mat" are four positions apart.
 
 ---
 
@@ -277,7 +281,7 @@ Objectivity requires noting that RoPE is not the end of the story.
 
 **Attention is still O(n²).** RoPE improves how position is encoded; it does not change the cost of computing attention over long sequences. At 100K tokens, quadratic complexity remains a hard practical constraint.
 
-**Rotational symmetry has limits.** RoPE encodes position as a rotation angle. Very long sequences require large angles, and eventually the rotation wraps around - a phenomenon called frequency aliasing at very long ranges. YaRN, LongRoPE, and similar extensions address this at the cost of additional complexity.
+**Rotational symmetry has limits.** RoPE encodes position as a rotation angle. Think of the clock-hand analogy again, but now imagine spinning a hand so far that it completes a full revolution and returns to where it started. A hand at 10° and a hand at 370° are indistinguishable. The same problem arises in RoPE at very long sequences: a token at position 7,000 and a token at position 7 can end up with nearly identical rotation angles on the low-frequency dimension pairs, making them appear positionally similar when they are not. This is frequency aliasing. YaRN, LongRoPE, and similar extensions rescale the frequency bands to push the wrap-around point further out — but they add complexity to do it.
 
 **The relative position property holds exactly only in the full-attention case.** With certain attention variants (sliding window, sparse attention), the clean $m - n$ dependency is disrupted. The interaction between RoPE and non-standard attention patterns is an active area of research.
 
