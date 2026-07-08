@@ -269,7 +269,7 @@ Since $R(m\theta)^\top = R(-m\theta)$ (rotation matrices are orthogonal), compos
 
 **Why sinusoidal PE cannot do this.** Sinusoidal PE *adds* position to the token embedding before attention runs:
 
-$$\text{token at position } m \;=\; \text{content} + \sin(m)$$
+$$\text{token at position } m = \text{content} + \sin(m)$$
 
 The dot product then expands into four terms — including cross-terms like $\text{content}_q \cdot \sin(n)$ and $\text{content}_k \cdot \sin(m)$ — where absolute positions are entangled with semantic content. There is no algebraic cancellation. The model must learn from data that the two absolute signals together encode a relative distance. RoPE delivers that distance directly, by construction.
 
