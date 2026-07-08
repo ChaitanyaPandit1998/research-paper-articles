@@ -49,7 +49,7 @@ Where `pos` is the token's position in the sequence, `i` is the dimension index,
 
 **2. Absolute position is not what attention needs.** What matters in language is not that "dog" is at position 4 in an absolute sense. What matters is that "dog" is two positions before "bites." Self-attention computes a dot product between a Query and a Key - a relative comparison. Injecting absolute position at the input and hoping the model infers relative distance from it is an indirect route.
 
-**3. Poor length generalisation in practice.** While sinusoidal encoding is theoretically continuous, models trained on sequences up to length 512 consistently degrade on sequences of length 1024 or longer. The model has seen position vectors for positions 0–511 during training; the positions 512–1023 are mathematically defined but contextually unfamiliar. Empirically, this generalisation often does not hold (Press et al., 2021; Su et al., 2024).
+**3. Poor length generalisation in practice.** While sinusoidal encoding is theoretically continuous, models trained on sequences up to length 512 consistently degrade on sequences of length 1024 or longer. The model has seen position vectors for positions 0–511 during training; the positions 512–1023 are mathematically defined but contextually unfamiliar. Empirically, this generalisation often does not hold (Press et al., 2021; Su et al., 2021).
 
 **4. Learned embeddings are even more brittle.** Some early Transformer variants replaced sinusoidal encodings with a learned embedding table - one vector per position, trained from data. These perform comparably or marginally better within the training distribution but extrapolate even worse: there is simply no learned vector for positions the model never saw.
 
@@ -93,11 +93,7 @@ Substitute $r\cos\alpha = x$ and $r\sin\alpha = y$:
 
 $$\boxed{x_\text{new} = x\cos\theta - y\sin\theta \qquad y_\text{new} = x\sin\theta + y\cos\theta}$$
 
-In matrix form:
-
-$$\begin{pmatrix} x_\text{new} \\ y_\text{new} \end{pmatrix} = \begin{pmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{pmatrix} \begin{pmatrix} x \\ y \end{pmatrix}$$
-
-RoPE applies this rotation to each dimension pair in the Query and Key vectors, with $\theta = m \times \theta_i$ — position $m$ scaled by the pair's base frequency. The angle-addition identity is also what makes the relative distance property work: when you take the dot product of two rotated vectors, the absolute positions cancel and only $(m - n)$ survives.
+This is the rotation matrix shown above — derived, not assumed. RoPE applies it to each dimension pair in the Query and Key vectors with $\theta = m \times \theta_i$, position $m$ scaled by the pair's base frequency. The same angle-addition identity is what makes the relative distance property work: when you dot-product two rotated vectors, the absolute positions cancel and only $(m - n)$ survives.
 
 ### Why Rotation Encodes Relative Distance
 
@@ -123,7 +119,7 @@ This property is sometimes called relative position encoding by construction - i
 | Length generalisation | Limited in practice | Poor — no vector beyond training length | Strong — continuous rotation scales naturally |
 | Attention score dependency | Indirect (model must learn to infer distance) | Indirect | Direct — score is a function of m−n only |
 | Used in | Original Transformer (2017), BERT | GPT-2 | Llama, Mistral, Qwen, Falcon, and most modern LLMs |
-| Compute overhead | Negligible (one addition) | Negligible (one lookup) | Negligible (one addition) |
+| Compute overhead | Negligible (one addition) | Negligible (one lookup) | Negligible (rotation per dim pair — trivial vs attention cost) |
 
 ---
 
@@ -243,6 +239,8 @@ This is the central claim of RoPE: the attention score after rotation depends on
 
 Same content vectors throughout: q = [0.8, 0.6], k = [0.6, 0.8], θ₀ = 1.0.
 
+**The clock-hand analogy.** Before looking at the table, consider two clock hands. Rotate one by 30° and another by 50°. The angle *between* them is always 20°, regardless of where they started. RoPE does exactly this: it rotates each token's vector by an angle proportional to its position. When you take the dot product of two rotated vectors, you are measuring alignment — and alignment only cares about the angle *between* the vectors, not their absolute orientation.
+
 **Three different pairs, all exactly 2 positions apart:**
 
 ```
@@ -255,15 +253,21 @@ positions 10,12 10  12   2    [−0.345, −0.939]   [ 0.936,  0.353]   −0.65
 
 The rotated vectors look completely different at each pair of positions — but the dot product is the same every time: **−0.65**.
 
+At positions 1 and 3, q has been rotated by 1θ and k by 3θ. At positions 5 and 7, q by 5θ and k by 7θ. The individual vectors point in entirely different directions in 2D space — but the *relative angle between them* is always 2θ. That relative angle is what the dot product measures, so the score is always the same.
+
 The absolute positions 1, 5, 10 have disappeared. Only the gap of 2 survives in the score.
 
 **Why this happens — one line of algebra:**
 
 $$q' \cdot k' = q^\top R(m\theta)^\top R(n\theta)\, k = q^\top R\bigl((n-m)\theta\bigr)\, k$$
 
-Since $R(m\theta)^\top = R(-m\theta)$ (rotation matrices are orthogonal), the $m$ and $n$ terms cancel and only $n - m$ remains. The score is a function of the content vectors and the *gap* — nothing else.
+Since $R(m\theta)^\top = R(-m\theta)$ (rotation matrices are orthogonal), composing the two rotations gives $R(-m\theta) \cdot R(n\theta) = R((n-m)\theta)$. Undoing a rotation by $m$ and then applying $n$ is the same as just applying $n - m$. The absolute positions cancel exactly; only the gap remains. The score is a function of the content vectors and the *gap* — nothing else.
 
-Compare this to sinusoidal PE: the position signal is added to the embedding before attention runs. By the time the dot product is computed, absolute position information from *both* tokens is mixed into their representations with no such clean cancellation. The model must learn, from data, to recover relative distance from two absolute signals. RoPE delivers relative distance directly, by construction.
+**Why sinusoidal PE cannot do this.** Sinusoidal PE *adds* position to the token embedding before attention runs:
+
+$$\text{token at position } m \;=\; \text{content} + \sin(m)$$
+
+The dot product then expands into four terms — including cross-terms like $\text{content}_q \cdot \sin(n)$ and $\text{content}_k \cdot \sin(m)$ — where absolute positions are entangled with semantic content. There is no algebraic cancellation. The model must learn from data that the two absolute signals together encode a relative distance. RoPE delivers that distance directly, by construction.
 
 ---
 
