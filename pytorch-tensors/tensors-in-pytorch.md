@@ -77,6 +77,28 @@ Rule of thumb: use `torch.tensor()` when you have existing data, factory functio
 
 ---
 
+### `torch.empty()` — allocate without initialising
+
+`torch.empty(*shape)` allocates a tensor of the given shape without writing any values into it. The contents are whatever bytes happened to already be in that memory — garbage, not zeros.
+
+```python
+torch.empty(2, 3)
+# tensor([[ 1.4013e-45,  0.0000e+00, -3.4194e+13],
+#         [ 4.5648e-41,  8.9683e-44,  0.0000e+00]])   — arbitrary leftover memory, different every run
+```
+
+It's faster than `torch.zeros()` or `torch.ones()` because it skips the initialisation pass — worth it only when you are about to overwrite every element yourself and don't want to pay for a write you'll immediately discard.
+
+```python
+# Pre-allocate a KV cache buffer, then fill it incrementally with scatter_
+kv_cache = torch.empty(1, 8, 2048, 64)   # allocate once
+kv_cache[:, :, :5, :] = new_kv           # write real values before ever reading the rest
+```
+
+**Danger:** reading from an `empty` tensor before writing to every position it will be used from is a silent correctness bug — you get real numbers, not an error, and they will be different each run. Never use `torch.empty()` when you need a zero baseline (use `torch.zeros()` or `torch.full_like()` instead); reserve it for buffers that get fully overwritten before use.
+
+---
+
 ### `torch.full_like()` and the `_like` factory functions
 
 `torch.full_like(x, value)` creates a tensor filled with `value`, matching `x`'s shape, dtype, and device. It's the fastest way to build a constant tensor that's guaranteed to line up with an existing one.
