@@ -58,11 +58,19 @@ b = torch.tensor([1, 2])         # int64   (Python int → int64)
 c = torch.Tensor([1, 2])         # float32 regardless
 
 # Factory functions — preferred in practice
-torch.zeros(3, 4)         # all zeros, float32
-torch.ones(3, 4)          # all ones
-torch.randn(3, 4)         # random, standard normal
-torch.arange(0, 10, 2)   # [0, 2, 4, 6, 8] — like Python range()
-torch.linspace(0, 1, 5)  # [0.0, 0.25, 0.5, 0.75, 1.0] — evenly spaced
+torch.zeros(2, 3)
+# tensor([[0., 0., 0.],
+#         [0., 0., 0.]])
+
+torch.ones(2, 3)
+# tensor([[1., 1., 1.],
+#         [1., 1., 1.]])
+
+torch.arange(0, 10, 2)
+# tensor([0, 2, 4, 6, 8])
+
+torch.linspace(0, 1, 5)
+# tensor([0.0000, 0.2500, 0.5000, 0.7500, 1.0000])
 ```
 
 Rule of thumb: use `torch.tensor()` when you have existing data, factory functions when you need a fresh tensor.
@@ -140,11 +148,14 @@ The `:` means "all of this dimension". `[:, 0]` reads as "every row, column 0".
 ```python
 x = torch.tensor([3, -1, 4, -1, 5])
 
-mask = x > 0          # tensor([True, False, True, False, True])
-x[mask]               # tensor([3, 4, 5]) — only positive values
+mask = x > 0
+# tensor([ True, False,  True, False,  True])
 
-# In-place zeroing of negatives (common in attention masking):
-x[x < 0] = 0         # tensor([3, 0, 4, 0, 5])
+x[mask]
+# tensor([3, 4, 5])    — only the elements where mask is True
+
+x[x < 0] = 0          # in-place: zero out negatives
+# tensor([3, 0, 4, 0, 5])
 ```
 
 ---
@@ -183,11 +194,16 @@ This is the embedding lookup every transformer does on input token IDs.
 ### View (shared memory) vs copy
 
 ```python
-x = torch.arange(6)          # tensor([0, 1, 2, 3, 4, 5])
-y = x.view(2, 3)             # reshape — shares x's memory
+x = torch.arange(6)
+# tensor([0, 1, 2, 3, 4, 5])
+
+y = x.view(2, 3)
+# tensor([[0, 1, 2],
+#         [3, 4, 5]])          — same data, different shape
 
 y[0, 0] = 99
-print(x)                     # tensor([99, 1, 2, 3, 4, 5]) — x changed too!
+print(x)
+# tensor([99,  1,  2,  3,  4,  5])  — x changed because y shares x's memory
 
 z = x.clone().view(2, 3)     # clone first → independent copy
 z[0, 0] = 0
@@ -210,10 +226,20 @@ Both change shape without moving data — when possible. The difference is what 
 
 ```python
 x = torch.arange(12)
+# tensor([ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11])
 
-x.view(3, 4)      # works — returns a view (zero copy)
-x.view(4, 3)      # works
-x.reshape(3, 4)   # also works — but if a view isn't possible, copies
+x.view(3, 4)
+# tensor([[ 0,  1,  2,  3],
+#         [ 4,  5,  6,  7],
+#         [ 8,  9, 10, 11]])    — rows are filled left-to-right from the flat list
+
+x.view(4, 3)
+# tensor([[ 0,  1,  2],
+#         [ 3,  4,  5],
+#         [ 6,  7,  8],
+#         [ 9, 10, 11]])
+
+x.reshape(3, 4)   # same output as view — but if a view isn't possible, copies
 ```
 
 After a `transpose()`, the tensor is no longer contiguous in memory (more on this in section 6). `view()` will error; `reshape()` will silently copy.
@@ -236,13 +262,23 @@ t.contiguous().view(12)  # explicit: make contiguous, then view
 `transpose()` swaps exactly two dimensions. `permute()` reorders all dimensions at once.
 
 ```python
+# Small example to see what the data looks like after transposing
+m = torch.tensor([[1, 2, 3],
+                  [4, 5, 6]])    # shape: [2, 3]
+
+m.transpose(0, 1)
+# tensor([[1, 4],
+#         [2, 5],
+#         [3, 6]])               shape: [3, 2] — rows became columns
+```
+
+For higher-dimensional tensors (the LLM case), only the shapes change — the pattern is the same:
+
+```python
 x = torch.randn(2, 8, 512, 64)  # [batch, heads, seq, head_dim]
 
-# Swap seq and head_dim
-x.transpose(2, 3)      # shape: [2, 8, 64, 512]
-
-# Reorder all dims
-x.permute(0, 2, 1, 3)  # shape: [2, 512, 8, 64]
+x.transpose(2, 3)      # shape: [2, 8, 64, 512]  — seq and head_dim swapped
+x.permute(0, 2, 1, 3)  # shape: [2, 512, 8, 64]  — heads moved to dim 2
 ```
 
 In Llama's attention code, after computing Q, K, V from the projection:
@@ -262,14 +298,23 @@ This is the head-splitting pattern in `modeling_llama.py`. The `view()` splits t
 `unsqueeze(dim)` adds a dimension of size 1. `squeeze(dim)` removes it.
 
 ```python
-x = torch.randn(512, 64)     # [seq_len, head_dim]
+x = torch.tensor([1, 2, 3])   # shape: [3]
 
-x.unsqueeze(0)    # [1, 512, 64]   — add batch dim
-x.unsqueeze(1)    # [512, 1, 64]   — add mid dim
+x.unsqueeze(0)
+# tensor([[1, 2, 3]])          shape: [1, 3] — batch dim added in front
 
-y = torch.randn(1, 512, 64)
-y.squeeze(0)      # [512, 64]      — remove the size-1 batch dim
-y.squeeze()       # removes ALL size-1 dims
+x.unsqueeze(1)
+# tensor([[1],
+#         [2],
+#         [3]])                shape: [3, 1] — new dim inserted after dim 0
+
+y = torch.tensor([[[1, 2, 3]]])   # shape: [1, 1, 3]
+
+y.squeeze()
+# tensor([1, 2, 3])           shape: [3] — all size-1 dims removed
+
+y.squeeze(0)
+# tensor([[1, 2, 3]])         shape: [1, 3] — only dim 0 removed
 ```
 
 `unsqueeze` is everywhere in broadcasting setups — you add a dim so PyTorch can broadcast across it.
@@ -280,10 +325,22 @@ y.squeeze()       # removes ALL size-1 dims
 
 ```python
 x = torch.tensor([[1], [2], [3]])   # shape: [3, 1]
+# tensor([[1],
+#         [2],
+#         [3]])
 
-x.expand(3, 4)    # shape: [3, 4] — zero copy, just changes strides
-x.repeat(1, 4)    # shape: [3, 4] — allocates new memory, copies data
+x.expand(3, 4)
+# tensor([[1, 1, 1, 1],
+#         [2, 2, 2, 2],
+#         [3, 3, 3, 3]])    shape: [3, 4] — zero copy, just changes strides
+
+x.repeat(1, 4)
+# tensor([[1, 1, 1, 1],
+#         [2, 2, 2, 2],
+#         [3, 3, 3, 3]])    shape: [3, 4] — allocates new memory, copies data
 ```
+
+Both produce the same visible result — the difference is only in memory: `expand()` reads the same element repeatedly via stride tricks, `repeat()` physically writes four copies.
 
 `expand()` is preferred when you're about to use the result in a computation. `repeat()` is for when you genuinely need a concrete copy — rare.
 
@@ -319,13 +376,31 @@ You need this before `view()` — see section 6 for why.
 ### `flatten()` and `unflatten()`
 
 ```python
-x = torch.randn(2, 8, 512, 64)
+x = torch.tensor([[[1, 2], [3, 4]],
+                  [[5, 6], [7, 8]]])   # shape: [2, 2, 2]
 
-x.flatten(1)              # flatten dims 1 onward → [2, 262144]
-x.flatten(2, 3)           # flatten only dims 2–3 → [2, 8, 32768]
+x.flatten()
+# tensor([1, 2, 3, 4, 5, 6, 7, 8])    shape: [8] — everything into one list
+
+x.flatten(1)
+# tensor([[1, 2, 3, 4],
+#         [5, 6, 7, 8]])               shape: [2, 4] — keep dim 0, flatten rest
+
+x.flatten(0, 1)
+# tensor([[1, 2],
+#         [3, 4],
+#         [5, 6],
+#         [7, 8]])                     shape: [4, 2] — flatten only dims 0 and 1
+```
+
+For large LLM tensors the shapes work the same way — only the numbers differ:
+
+```python
+x = torch.randn(2, 8, 512, 64)
+x.flatten(2, 3)           # [2, 8, 32768] — merge seq and head_dim
 
 y = torch.randn(2, 32768)
-y.unflatten(1, (512, 64)) # [2, 512, 64] — split dim 1 into (512, 64)
+y.unflatten(1, (512, 64)) # [2, 512, 64]  — split dim 1 back into (seq, head_dim)
 ```
 
 ---
@@ -342,9 +417,26 @@ Shape B:    [      1,   64]   ← aligned from right
 Result:     [   8, 512,  64]  ← B's size-1 dims expand to match A
 ```
 
+A concrete example with small numbers to see what actually happens:
+
 ```python
-scores  = torch.randn(8, 512, 512)   # [heads, seq, seq]
-mask    = torch.zeros(1, 512, 512)   # [1, seq, seq]
+a = torch.tensor([[1, 2, 3],
+                  [4, 5, 6]])    # shape: [2, 3]
+
+b = torch.tensor([[10],
+                  [20]])         # shape: [2, 1]
+
+a + b
+# tensor([[11, 12, 13],
+#         [24, 25, 26]])
+# b's column [10, 20] was virtually repeated 3 times to match a's 3 columns
+```
+
+In LLM code the same rule applies to larger shapes:
+
+```python
+scores = torch.randn(8, 512, 512)   # [heads, seq, seq]
+mask   = torch.zeros(1, 512, 512)   # [1, seq, seq]
 
 scores + mask   # mask broadcasts across the 8 heads — no data copy
 ```
@@ -415,10 +507,18 @@ torch.exp(x)   # [e¹, e⁴, e⁹]
 x = torch.tensor([[1., 2., 3.],
                   [4., 5., 6.]])   # shape: [2, 3]
 
-x.sum()                       # tensor(21.) — all elements
-x.sum(dim=0)                  # tensor([5., 7., 9.]) — sum along rows → shape [3]
-x.sum(dim=1)                  # tensor([6., 15.])    — sum along cols → shape [2]
-x.sum(dim=1, keepdim=True)    # tensor([[6.],[15.]]) — shape [2,1], keeps dims
+x.sum()
+# tensor(21.)                              — all 6 elements summed
+
+x.sum(dim=0)
+# tensor([5., 7., 9.])                     shape: [3] — each column summed across rows
+
+x.sum(dim=1)
+# tensor([ 6., 15.])                       shape: [2] — each row summed across columns
+
+x.sum(dim=1, keepdim=True)
+# tensor([[ 6.],
+#         [15.]])                           shape: [2, 1] — dim 1 kept as size-1
 ```
 
 `keepdim=True` matters for broadcasting — without it, the reduced tensor loses a dimension and may not align correctly in subsequent operations.
@@ -461,9 +561,12 @@ Einstein summation — expresses any contraction or reordering in one string.
 scores = torch.einsum("bhsd,bhSd->bhsS", q, k)
 
 # Outer product
-a = torch.randn(3)
-b = torch.randn(4)
-torch.einsum("i,j->ij", a, b)   # [3, 4]
+a = torch.tensor([1., 2., 3.])
+b = torch.tensor([4., 5., 6., 7.])
+torch.einsum("i,j->ij", a, b)
+# tensor([[ 4.,  5.,  6.,  7.],
+#         [ 8., 10., 12., 14.],
+#         [12., 15., 18., 21.]])   shape: [3, 4] — every pair multiplied
 
 # Batch matrix multiply
 torch.einsum("bik,bkj->bij", x, y)   # equivalent to x @ y for 3D
@@ -517,11 +620,16 @@ Every tensor is a view into a flat 1D block of memory called storage. The tensor
 x = torch.tensor([[1, 2, 3],
                   [4, 5, 6]])   # shape: [2, 3]
 
-x.storage()    # [1, 2, 3, 4, 5, 6] — flat block
-x.stride()     # (3, 1) — move 3 to go down a row, move 1 to go right a col
+list(x.storage())   # [1, 2, 3, 4, 5, 6] — one flat block in memory
+x.stride()          # (3, 1)
+#                     ↑  ↑
+#                     |  └─ move 1 element to step right one column
+#                     └──── move 3 elements to step down one row
 ```
 
 To find element `x[i, j]`: `storage[i * 3 + j * 1]`.
+
+So `x[1, 2]` = `storage[1*3 + 2*1]` = `storage[5]` = `6`. ✓
 
 ---
 
@@ -530,11 +638,18 @@ To find element `x[i, j]`: `storage[i * 3 + j * 1]`.
 ```python
 t = x.transpose(0, 1)   # shape: [3, 2]
 
-t.storage()   # still [1, 2, 3, 4, 5, 6] — same memory, unchanged
-t.stride()    # (1, 3) — strides are swapped
+list(t.storage())   # [1, 2, 3, 4, 5, 6] — identical to x, nothing moved
+t.stride()          # (1, 3) — strides are just swapped
+
+print(t)
+# tensor([[1, 4],
+#         [2, 5],
+#         [3, 6]])
 ```
 
-`t[i, j]` = `storage[i * 1 + j * 3]`. The data didn't move — PyTorch just changed the recipe for navigating it. This is why `transpose()` is cheap and why `view()` fails afterward: `view()` requires elements to be laid out consecutively in storage, and after transposing they aren't.
+`t[i, j]` = `storage[i * 1 + j * 3]`. So `t[0, 1]` = `storage[0 + 3]` = `storage[3]` = `4`. The same flat memory, read with different navigation rules.
+
+This is why `transpose()` is cheap and why `view()` fails afterward: `view()` requires elements to be consecutive in storage so it can slice them into rows, and after transposing they are interleaved instead.
 
 ---
 
@@ -769,16 +884,42 @@ Read the string as: name the dims of each input, name the dims of the output. An
 ### `masked_fill()` for causal masks
 
 ```python
+# With seq_len=4 to make the mask visible
+mask = torch.triu(torch.ones(4, 4), diagonal=1).bool()
+# tensor([[False,  True,  True,  True],
+#         [False, False,  True,  True],
+#         [False, False, False,  True],
+#         [False, False, False, False]])
+#
+# Row i = token i. True = "this position is masked" (future token).
+# Token 0 can only attend to itself.
+# Token 3 can attend to tokens 0, 1, 2, 3.
+
+scores = torch.zeros(1, 1, 4, 4)   # simplified scores
+scores = scores.masked_fill(mask, float('-inf'))
+# tensor([[[[0., -inf, -inf, -inf],
+#           [0.,  0.,  -inf, -inf],
+#           [0.,  0.,   0.,  -inf],
+#           [0.,  0.,   0.,   0.]]]])
+
+torch.softmax(scores, dim=-1)
+# tensor([[[[1.0000, 0.0000, 0.0000, 0.0000],
+#           [0.5000, 0.5000, 0.0000, 0.0000],
+#           [0.3333, 0.3333, 0.3333, 0.0000],
+#           [0.2500, 0.2500, 0.2500, 0.2500]]]])
+#
+# -inf → 0.0 after softmax. Each row sums to 1.
+# Token 0 attends only to itself; token 3 attends equally to all four tokens.
+```
+
+For the full-sequence case, only the shape differs — the masking pattern is the same:
+
+```python
 scores = torch.randn(4, 512, 512)   # [batch, seq, seq]
-
-# Upper triangle mask — position i cannot attend to j > i
-mask = torch.triu(torch.ones(512, 512), diagonal=1).bool()
-
+mask   = torch.triu(torch.ones(512, 512), diagonal=1).bool()
 scores = scores.masked_fill(mask, float('-inf'))
 attn   = torch.softmax(scores, dim=-1)
 ```
-
-After softmax, all `-inf` positions become 0 — the token effectively ignores those positions. This is how causal (autoregressive) attention is implemented.
 
 ---
 
