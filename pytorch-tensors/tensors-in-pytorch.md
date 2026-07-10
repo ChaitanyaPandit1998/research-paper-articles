@@ -833,3 +833,271 @@ The sections connect like this:
 - **Broadcasting (4)** explains how masks and GQA head expansion work without extra memory.
 - **Autograd (7)** explains why in-place ops and detach patterns exist.
 - **Transformer internals (9)** is all of the above applied — every line in `modeling_llama.py` maps back to a concept from sections 1–8.
+
+---
+
+## 11. The Full Attention Forward Pass — Annotated
+
+Every concept from sections 1–10 appears somewhere in these ~30 lines. Read the shape comments as a running trace of what the tensor looks like at each step.
+
+```python
+import torch
+import torch.nn.functional as F
+
+# ── Hyperparameters ──────────────────────────────────────────────────────────
+batch      = 2
+seq_len    = 512
+hidden_dim = 512
+num_heads  = 8
+head_dim   = hidden_dim // num_heads   # 64
+
+# ── Inputs ───────────────────────────────────────────────────────────────────
+# Token IDs from the tokeniser
+token_ids = torch.randint(0, 50000, (batch, seq_len))          # [2, 512]  int64
+
+# Embedding lookup — each token ID maps to a learned vector
+embedding_table = torch.randn(50000, hidden_dim)               # [50000, 512]
+x = embedding_table[token_ids]                                 # [2, 512, 512]
+
+# ── Linear projections (Q, K, V) ─────────────────────────────────────────────
+# In practice these are nn.Linear layers; here we use raw weight matrices
+W_q = torch.randn(hidden_dim, hidden_dim)                      # [512, 512]
+W_k = torch.randn(hidden_dim, hidden_dim)
+W_v = torch.randn(hidden_dim, hidden_dim)
+
+q = x @ W_q    # [2, 512, 512] @ [512, 512] → [2, 512, 512]
+k = x @ W_k    # [2, 512, 512]
+v = x @ W_v    # [2, 512, 512]
+
+# ── Split into heads ──────────────────────────────────────────────────────────
+# view() splits the last dim (512) into (num_heads=8, head_dim=64) — zero copy
+# transpose(1, 2) moves heads forward — changes strides, no data movement
+q = q.view(batch, seq_len, num_heads, head_dim).transpose(1, 2)  # [2, 8, 512, 64]
+k = k.view(batch, seq_len, num_heads, head_dim).transpose(1, 2)  # [2, 8, 512, 64]
+v = v.view(batch, seq_len, num_heads, head_dim).transpose(1, 2)  # [2, 8, 512, 64]
+
+# ── Attention scores ──────────────────────────────────────────────────────────
+# k.transpose(-2, -1) → [2, 8, 64, 512]
+# @ batches over [batch, heads], matmuls over [seq, head_dim] × [head_dim, seq]
+scale  = head_dim ** 0.5                                          # 8.0
+scores = (q @ k.transpose(-2, -1)) / scale                       # [2, 8, 512, 512]
+
+# ── Causal mask ───────────────────────────────────────────────────────────────
+# Upper triangle is True — position i must not attend to j > i
+causal_mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool()
+                                                                  # [512, 512]
+# masked_fill broadcasts causal_mask across [batch, heads] dims
+scores = scores.masked_fill(causal_mask, float('-inf'))           # [2, 8, 512, 512]
+
+# ── Softmax ───────────────────────────────────────────────────────────────────
+# dim=-1 normalises over the key dimension (last dim)
+# -inf positions become 0 after softmax — those tokens are ignored
+attn_weights = torch.softmax(scores, dim=-1)                      # [2, 8, 512, 512]
+
+# ── Weighted sum of values ────────────────────────────────────────────────────
+# attn_weights: [2, 8, 512, 512] @ v: [2, 8, 512, 64] → [2, 8, 512, 64]
+attn_output = attn_weights @ v                                    # [2, 8, 512, 64]
+
+# ── Merge heads back ──────────────────────────────────────────────────────────
+# contiguous() required because transpose() changed strides — view() needs contiguous layout
+# view() merges (num_heads, head_dim) back into hidden_dim
+attn_output = attn_output.transpose(1, 2).contiguous()           # [2, 512, 8, 64]
+attn_output = attn_output.view(batch, seq_len, hidden_dim)       # [2, 512, 512]
+
+# ── Output projection ─────────────────────────────────────────────────────────
+W_o = torch.randn(hidden_dim, hidden_dim)
+output = attn_output @ W_o                                        # [2, 512, 512]
+```
+
+**What each section of the code exercises:**
+
+| Lines | Concept |
+|---|---|
+| Token IDs → embedding lookup | Advanced indexing (section 2) |
+| `x @ W_q` | Batched matmul (section 5) |
+| `.view(...).transpose(1, 2)` | Head-splitting pattern (section 3) |
+| `q @ k.transpose(-2, -1)` | 4D batched matmul (section 9) |
+| `torch.triu(...).bool()` | Boolean mask construction (section 2) |
+| `.masked_fill(causal_mask, -inf)` | Broadcasting mask across batch/heads (section 4) |
+| `torch.softmax(..., dim=-1)` | Reduction with dim (section 5) |
+| `.transpose(1, 2).contiguous().view(...)` | Contiguity before view (section 6) |
+
+---
+
+## 12. Common Errors and How to Read Them
+
+These are the five errors you will hit repeatedly. Each one has a specific cause and a one-line fix.
+
+---
+
+### 1. Device mismatch
+
+```
+RuntimeError: Expected all tensors to be on the same device,
+but found at least two devices, cuda:0 and cpu!
+```
+
+**Cause:** two tensors in the same operation live on different devices.
+
+```python
+a = torch.randn(3)                    # CPU
+b = torch.randn(3, device="cuda")    # GPU
+
+a + b   # error
+```
+
+**Fix:** move one tensor to match the other before the op.
+
+```python
+a.to(b.device) + b        # move a to wherever b lives
+# or
+a.cuda() + b              # explicit
+```
+
+**How to avoid:** when building a model, always create tensors with `device=` matching your model, or use `.to(device)` immediately after creation.
+
+---
+
+### 2. Shape mismatch in matmul
+
+```
+RuntimeError: mat1 and mat2 shapes cannot be multiplied (512x64 and 512x64)
+```
+
+**Cause:** the inner dimensions don't match. Matmul of `[M, K]` and `[K, N]` requires the second dim of the first tensor to equal the first dim of the second.
+
+```python
+a = torch.randn(512, 64)
+b = torch.randn(512, 64)   # wrong — need [64, N] not [512, 64]
+
+a @ b   # error
+```
+
+**Fix:** transpose the second tensor if needed.
+
+```python
+a @ b.T          # b.T is [64, 512] → result [512, 512]
+a @ b.transpose(0, 1)   # same thing, explicit
+```
+
+**How to diagnose:** print both shapes before the op. The error tells you the actual shapes — read them left to right: `(M×K)` cannot multiply `(K'×N)` means K ≠ K'.
+
+---
+
+### 3. View on a non-contiguous tensor
+
+```
+RuntimeError: view size is not compatible with input tensor's size and stride
+(at least one dimension spans across two contiguous subspaces).
+Use .reshape(...) instead.
+```
+
+**Cause:** you called `.view()` after an operation that changed strides without copying data — most commonly `transpose()` or `permute()`.
+
+```python
+x = torch.randn(3, 4)
+t = x.transpose(0, 1)   # shape [4, 3], strides changed
+t.view(12)              # error — not contiguous
+```
+
+**Fix:** either call `.contiguous()` first (explicit copy), or use `.reshape()` (copies if needed, silent).
+
+```python
+t.contiguous().view(12)   # explicit — you know a copy happens
+t.reshape(12)             # implicit — PyTorch decides whether to copy
+```
+
+**Rule:** use `.view()` when you want a guaranteed zero-copy reshape and you know the tensor is contiguous. Use `.reshape()` otherwise.
+
+---
+
+### 4. dtype mismatch
+
+```
+RuntimeError: expected scalar type Float but found BFloat16
+```
+
+**Cause:** two tensors in the same op have different dtypes. Unlike NumPy, PyTorch does not silently upcast.
+
+```python
+a = torch.randn(3)                           # float32
+b = torch.randn(3, dtype=torch.bfloat16)    # bfloat16
+
+a + b   # error
+```
+
+**Fix:** cast one to match the other.
+
+```python
+a.to(b.dtype) + b
+# or
+a.bfloat16() + b
+```
+
+**How to avoid:** when loading model weights in bfloat16, ensure input tensors are also cast before they touch the model: `inputs = inputs.to(dtype=model.dtype)`.
+
+---
+
+### 5. `nan` in loss with no obvious cause
+
+No explicit error — loss just prints `nan` or `tensor(nan)`.
+
+**Common causes, in order of likelihood:**
+
+```python
+# 1. Softmax of a row that's all -inf (every token masked)
+scores = torch.full((4, 512, 512), float('-inf'))
+torch.softmax(scores, dim=-1)   # nan — 0/0
+
+# 2. log of zero
+x = torch.tensor([0.0, 1.0])
+torch.log(x)   # tensor([-inf, 0.]) — -inf propagates to nan in further ops
+
+# 3. sqrt or division by zero
+torch.sqrt(torch.tensor(-1.0))   # nan
+
+# 4. Exploding gradients — values grow to inf, then nan
+# Fix: gradient clipping
+torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+```
+
+**How to debug:**
+
+```python
+# After each suspicious op, check:
+print(torch.isnan(x).any(), torch.isinf(x).any())
+
+# Find which parameter has nan gradients after backward:
+for name, param in model.named_parameters():
+    if param.grad is not None and torch.isnan(param.grad).any():
+        print(f"nan grad in {name}")
+```
+
+---
+
+## 13. Shape Cheat Sheet
+
+A reference for the operations that change tensor shape — input shape, output shape, and what actually happened to the data.
+
+| Operation | Input shape | Output shape | Data copied? | Notes |
+|---|---|---|---|---|
+| `x.view(a, b)` | `[M, N]` | `[a, b]` | No | Fails if not contiguous |
+| `x.reshape(a, b)` | `[M, N]` | `[a, b]` | Only if needed | Safe fallback for view |
+| `x.transpose(0, 1)` | `[M, N]` | `[N, M]` | No | Swaps two dims, changes strides |
+| `x.T` | `[M, N]` | `[N, M]` | No | Shorthand for 2D transpose |
+| `x.permute(2,0,1)` | `[A, B, C]` | `[C, A, B]` | No | Reorders all dims |
+| `x.unsqueeze(0)` | `[M, N]` | `[1, M, N]` | No | Inserts size-1 dim |
+| `x.squeeze(0)` | `[1, M, N]` | `[M, N]` | No | Removes size-1 dim |
+| `x.squeeze()` | `[1, M, 1]` | `[M]` | No | Removes all size-1 dims |
+| `x.expand(4, -1)` | `[1, N]` | `[4, N]` | No | Virtual copy via strides |
+| `x.repeat(4, 1)` | `[1, N]` | `[4, N]` | Yes | Actual copy in memory |
+| `x.flatten(1)` | `[B, M, N]` | `[B, M*N]` | Only if needed | Flattens from dim 1 onward |
+| `x.flatten(2, 3)` | `[B, H, S, D]` | `[B, H, S*D]` | Only if needed | Flattens dims 2 and 3 only |
+| `x.unflatten(1, (a,b))` | `[B, a*b]` | `[B, a, b]` | No | Splits one dim into two |
+| `x.contiguous()` | any | same shape | Yes | Forces row-major layout |
+| `torch.cat([a,b], dim=0)` | `[M,N]`, `[K,N]` | `[M+K, N]` | Yes | Joins along existing dim |
+| `torch.stack([a,b], dim=0)` | `[M,N]`, `[M,N]` | `[2, M, N]` | Yes | Creates new dim |
+| `torch.split(x, s, dim=1)` | `[M, N]` | list of `[M, s]` | No (views) | Splits into chunks of size s |
+| `torch.chunk(x, n, dim=1)` | `[M, N]` | list of `[M, N/n]` | No (views) | Splits into n equal chunks |
+| `a @ b` | `[...,M,K]`, `[...,K,N]` | `[...,M,N]` | Yes (result) | Batches over leading dims |
+| `x[mask]` (bool mask) | `[M, N]`, mask `[M,N]` | `[K, N]` | Yes | K = number of True values |
