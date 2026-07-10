@@ -77,6 +77,34 @@ Rule of thumb: use `torch.tensor()` when you have existing data, factory functio
 
 ---
 
+### `torch.full_like()` and the `_like` factory functions
+
+`torch.full_like(x, value)` creates a tensor filled with `value`, matching `x`'s shape, dtype, and device. It's the fastest way to build a constant tensor that's guaranteed to line up with an existing one.
+
+```python
+x = torch.randn(2, 3, dtype=torch.bfloat16, device="cuda")
+
+torch.full_like(x, -1e9)
+# tensor([[-1e9, -1e9, -1e9],
+#         [-1e9, -1e9, -1e9]], dtype=torch.bfloat16, device='cuda:0')
+# same shape, dtype, and device as x — no manual bookkeeping
+
+torch.zeros_like(x)   # same as torch.full_like(x, 0)
+torch.ones_like(x)    # same as torch.full_like(x, 1)
+```
+
+This shows up when building an additive attention bias or a padding fill value that has to exactly match the score tensor's shape and dtype:
+
+```python
+scores = torch.randn(2, 8, 512, 512)
+neg_inf_bias = torch.full_like(scores, float('-inf'))
+scores = torch.where(causal_mask, neg_inf_bias, scores)
+```
+
+Using `torch.full_like()` instead of `torch.full(scores.shape, ...)` avoids a whole class of dtype/device-mismatch bugs (section 12) — you never have to remember to also pass `dtype=` and `device=`.
+
+---
+
 ### `dtype`
 
 | dtype | bits | used for |
@@ -188,6 +216,47 @@ embeddings = vocab[token_ids]     # shape: [3, 768]
 ```
 
 This is the embedding lookup every transformer does on input token IDs.
+
+---
+
+### `torch.scatter_()` — writing values at indexed positions
+
+Where `x[token_ids]` *reads* rows by index, `scatter_` *writes* values into a tensor at positions given by an index tensor. `x.scatter_(dim, index, src)` writes, for every position, `x[..., index[...], ...] = src[...]` along `dim`.
+
+```python
+x = torch.zeros(3, 5)
+index = torch.tensor([[1], [0], [4]])
+src = torch.tensor([[1.0], [1.0], [1.0]])
+
+x.scatter_(1, index, src)
+# tensor([[0., 1., 0., 0., 0.],
+#         [1., 0., 0., 0., 0.],
+#         [0., 0., 0., 0., 1.]])
+# row 0 got a 1 at column 1, row 1 at column 0, row 2 at column 4
+```
+
+The classic use is building one-hot labels from class indices:
+
+```python
+labels = torch.tensor([2, 0, 1])          # class index per example
+one_hot = torch.zeros(3, 3)
+one_hot.scatter_(1, labels.unsqueeze(1), 1.0)
+# tensor([[0., 0., 1.],
+#         [1., 0., 0.],
+#         [0., 1., 0.]])
+```
+
+It also shows up in KV-cache updates, where a new token's key/value vectors are written into a fixed-size cache at the current position:
+
+```python
+kv_cache = torch.zeros(1, 8, 2048, 64)          # [batch, heads, max_seq, head_dim]
+position  = torch.tensor([5]).view(1, 1, 1, 1).expand(1, 8, 1, 64)
+new_kv    = torch.randn(1, 8, 1, 64)
+
+kv_cache.scatter_(2, position, new_kv)   # writes new_kv at seq position 5
+```
+
+The trailing underscore means this is an in-place op — same caution applies as with any `_` method (section 5): it mutates `x` directly and will error on a leaf tensor that `requires_grad`. `torch.scatter()` (no underscore) returns a new tensor instead of mutating.
 
 ---
 
@@ -532,6 +601,42 @@ x = x - x_max                               # [4, 512] - [4, 1] → fine
 
 ---
 
+### `torch.topk`
+
+`torch.topk(x, k, dim=)` returns the `k` largest values along `dim`, plus their indices. It returns a named tuple `(values, indices)`.
+
+```python
+x = torch.tensor([3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0])
+
+torch.topk(x, 3)
+# torch.return_types.topk(
+# values=tensor([9., 5., 4.]),
+# indices=tensor([5, 4, 2]))
+# largest 3 values, in descending order, with their original positions
+```
+
+The signature LLM use is top-k sampling during generation — restrict the next-token distribution to the k highest-probability tokens before sampling:
+
+```python
+logits = torch.randn(1, 50000)     # [batch, vocab]
+k = 50
+
+top_values, top_indices = torch.topk(logits, k, dim=-1)   # both [1, 50]
+
+# Mask everything outside the top-k before softmax
+filtered = torch.full_like(logits, float('-inf'))
+filtered.scatter_(-1, top_indices, top_values)
+
+probs = torch.softmax(filtered, dim=-1)   # [1, 50000], zero everywhere but the top-k
+next_token = torch.multinomial(probs, num_samples=1)
+```
+
+This is also how a router in a Mixture-of-Experts layer picks which experts to activate per token: `torch.topk(gate_logits, num_experts_per_token, dim=-1)`.
+
+`largest=False` flips it to smallest-k; `sorted=False` skips the sort for a small speedup when order doesn't matter.
+
+---
+
 ### Matrix operations
 
 ```python
@@ -549,6 +654,38 @@ scores = q @ k    # [2, 8, 512, 512] — matmul over last two dims, batch over f
 ```
 
 `torch.bmm()` is the older batched matmul — only handles 3D tensors. The `@` operator is more general and preferred.
+
+---
+
+### `torch.bmm()` — strict batched matmul
+
+`torch.bmm(a, b)` multiplies a batch of matrices: `a` is `[B, M, K]`, `b` is `[B, K, N]`, result is `[B, M, N]`. Unlike `@`, it requires exactly 3D inputs and does **no broadcasting** over the batch dimension — the batch sizes must match exactly.
+
+```python
+a = torch.randn(4, 512, 64)
+b = torch.randn(4, 64, 128)
+
+torch.bmm(a, b)   # [4, 512, 128]
+
+# No broadcasting allowed:
+c = torch.randn(1, 64, 128)
+torch.bmm(a, c)   # RuntimeError: batch1 and batch2 must have same batch size
+a @ c             # works — [4,512,64] @ [1,64,128] broadcasts to [4,512,128]
+```
+
+For 4D attention tensors (`[batch, heads, seq, head_dim]`) you'd first collapse `batch` and `heads` into one dim to use `bmm`:
+
+```python
+q = torch.randn(2, 8, 512, 64)
+k = torch.randn(2, 8, 64, 512)
+
+q_flat = q.flatten(0, 1)                 # [16, 512, 64]
+k_flat = k.flatten(0, 1)                 # [16, 64, 512]
+scores = torch.bmm(q_flat, k_flat)       # [16, 512, 512]
+scores = scores.unflatten(0, (2, 8))     # [2, 8, 512, 512]
+```
+
+In practice `@` does this for you without the manual flatten/unflatten, which is why `bmm` mostly appears in older codebases or when you want the stricter shape check as a safety net against silent broadcasting bugs (section 4).
 
 ---
 
@@ -1269,7 +1406,10 @@ A reference for the operations that change tensor shape — input shape, output 
 | `torch.split(x, s, dim=1)` | `[M, N]` | list of `[M, s]` | No (views) | Splits into chunks of size s |
 | `torch.chunk(x, n, dim=1)` | `[M, N]` | list of `[M, N/n]` | No (views) | Splits into n equal chunks |
 | `a @ b` | `[...,M,K]`, `[...,K,N]` | `[...,M,N]` | Yes (result) | Batches over leading dims |
+| `torch.bmm(a, b)` | `[B,M,K]`, `[B,K,N]` | `[B,M,N]` | Yes (result) | Strict 3D, no broadcasting |
 | `x[mask]` (bool mask) | `[M, N]`, mask `[M,N]` | `[K, N]` | Yes | K = number of True values |
+| `torch.topk(x, k, dim)` | `[M, N]` | `[M, k]`, `[M, k]` | Yes (result) | Returns (values, indices) |
+| `x.scatter_(dim, idx, src)` | `[M, N]` | same shape | In-place | Writes src at idx along dim |
 
 ---
 
