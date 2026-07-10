@@ -427,7 +427,7 @@ self.hidden_size      = config.hidden_size          # 4
 self.expert_dim       = self.intermediate_size      # 6  (alias)
 ```
 
-Just storing numbers. `expert_dim` is the same thing as `intermediate_size`.
+**Why:** Storing config values as instance attributes so the forward pass can reference them without touching config again.
 
 ```python
 self.gate_up_proj = nn.Parameter(
@@ -440,18 +440,22 @@ self.gate_up_proj = nn.Parameter(
 #         └───────── one weight matrix per expert
 ```
 
-Instead of 4 separate `nn.Linear(4, 6)` modules for gate and another 4 for up, all 4 experts' gate+up weights are fused into a single 3D parameter. Slice `[0,:,:]` = expert 0's weights, `[1,:,:]` = expert 1's, etc.
+**Why:** All 4 experts' weights are packed into one 3D tensor instead of 4 separate `nn.Linear` layers. This allows a single `torch.bmm` to run all experts in parallel — far more efficient on GPU than 4 sequential matmuls. The `2×` is because gate and up projections are fused: first half = gate, second half = up.
 
 ```python
 self.down_proj = nn.Parameter(
     torch.empty((self.num_experts, self.expert_dim, self.hidden_size))
 )
 # shape: [4, 6, 4]
-# Takes the activated intermediate vector (size 6) back down to hidden_size (4).
-# One down projection per expert.
+```
 
+**Why:** Same batched design as `gate_up_proj` — one down-projection matrix per expert, all stacked together so `bmm` can project all experts back to `hidden_size` in one call.
+
+```python
 self.act_fn = ACT2FN[config.hidden_act]   # SiLU
 ```
+
+**Why:** Storing the activation function as an attribute so the forward pass can call it without string lookups each time.
 
 ---
 
@@ -468,7 +472,7 @@ class Llama4Router(nn.Linear):
         self.top_k       = config.num_experts_per_tok # 1
 ```
 
-The router subclasses `nn.Linear` directly. It maps each token vector `[hidden_size]` to a score for each expert `[num_experts]`. `super().forward(x)` gives `x @ weight.T`.
+**Why:** Subclassing `nn.Linear` directly means we get a trained weight matrix for free and can call `super().forward(x)` to get scores. No extra layers — the router is intentionally minimal (just one linear transform) so routing decisions don't dominate compute.
 
 ---
 
@@ -483,7 +487,7 @@ self.router       = Llama4Router(config)          # the linear classifier
 self.shared_expert = Llama4TextMLP(config)        # normal MLP, always runs
 ```
 
-Three sub-modules. Nothing computed here — just wiring them up.
+**Why:** Three independent sub-modules. Nothing is computed in `__init__` — just wiring up the pieces so `forward` can call them.
 
 ---
 
@@ -498,7 +502,7 @@ Three sub-modules. Nothing computed here — just wiring them up.
 hidden_states = hidden_states.reshape(-1, self.hidden_dim)
 # [1, 2, 4]  →  [2, 4]
 ```
-Flatten batch and sequence into one dimension. Now we have T=2 tokens, each a vector of size 4. All further work is token-by-token.
+**Why:** The router and experts work on individual tokens, not on (batch, sequence) pairs. Collapsing those two dimensions means the rest of the forward pass treats every token identically regardless of which batch item or position it came from.
 
 ---
 
@@ -507,12 +511,14 @@ Flatten batch and sequence into one dimension. Now we have T=2 tokens, each a ve
 router_scores, router_logits = self.router(hidden_states)
 ```
 
+**Why:** Before we can send tokens to experts, we need to know which expert each token should go to. The router does this by scoring every token against every expert.
+
 Stepping inside `Llama4Router.forward`:
 
 ```python
 router_logits = super().forward(hidden_states)
+# Why: Run the learned linear layer — produces a raw score per expert per token.
 # Linear [2,4] @ [4,4].T  =  [2, 4]
-# Each token now has 4 raw scores, one per expert
 
 # token 0: [ 0.9,  0.2, -0.1,  0.5]
 # token 1: [-0.3,  0.8,  0.7,  0.1]
@@ -520,7 +526,8 @@ router_logits = super().forward(hidden_states)
 
 ```python
 router_top_value, router_indices = torch.topk(router_logits, self.top_k, dim=1)
-# top_k=1 → pick the single highest score per token
+# Why: We only want each token to use top_k=1 expert. topk picks the
+#      highest-scoring expert index and its score for each token.
 
 # router_top_value: [[0.9],  [0.8]]
 # router_indices:   [[0],    [1]]    ← token 0 picks expert 0, token 1 picks expert 1
@@ -528,19 +535,20 @@ router_top_value, router_indices = torch.topk(router_logits, self.top_k, dim=1)
 
 ```python
 router_scores = torch.full_like(router_logits, float("-inf"))
-# Start with a [2, 4] tensor of -inf
-# [[-inf, -inf, -inf, -inf],
-#  [-inf, -inf, -inf, -inf]]
+# Why: Create a blank slate of -inf so that after sigmoid, non-selected
+#      experts will become exactly 0 (sigmoid(-inf) = 0).
 
 router_scores = router_scores.scatter_(1, router_indices, router_top_value)
-# Write the top value back at the chosen expert index, leave others as -inf
+# Why: Place each token's top score back at its chosen expert position.
+#      Every other position stays -inf.
 # [[ 0.9, -inf, -inf, -inf],   ← token 0 chose expert 0
 #  [-inf,  0.8, -inf, -inf]]   ← token 1 chose expert 1
 
 router_scores = torch.sigmoid(router_scores.float())
-# sigmoid(-inf) = 0.0  →  all non-selected experts become exactly 0
-# sigmoid(0.9)  ≈ 0.71
-# sigmoid(0.8)  ≈ 0.69
+# Why: Convert the chosen expert's score to a weight in (0, 1) that will
+#      scale the expert's output. sigmoid instead of softmax means experts
+#      are scored independently — the weight expresses confidence, not competition.
+# sigmoid(-inf) = 0.0,  sigmoid(0.9) ≈ 0.71,  sigmoid(0.8) ≈ 0.69
 
 # [[0.71, 0.0,  0.0,  0.0],
 #  [0.0,  0.69, 0.0,  0.0]]
@@ -551,12 +559,28 @@ router_scores = torch.sigmoid(router_scores.float())
 
 ---
 
-**Line 3**
+**Line 3 — The Repeat (why we copy tokens)**
 ```python
 routed_in = hidden_states.repeat(router_scores.shape[1], 1)
 # router_scores.shape[1] = num_experts = 4
 # .repeat(4, 1) stacks the token matrix 4 times along rows
+# [2, 4]  →  [8, 4]
+```
 
+**Why we need to copy at all:**
+
+`Llama4TextExperts.forward` runs a single batched matrix multiply (`bmm`) across all experts at once. For that to work, the input must be shaped `[num_experts, T, hidden]` — a fixed rectangular block where every expert has the same number of token slots.
+
+The problem: routing is sparse and uneven. Token 0 goes to expert 0, token 1 goes to expert 1. Experts 2 and 3 received nothing. We can't give each expert a different-length list of tokens — `bmm` needs a uniform shape.
+
+The solution used here is called **dense dispatch**:
+- Give every expert a copy of every token → uniform shape guaranteed
+- Multiply by routing scores in the next line → zero out the tokens that don't belong to each expert
+- Experts 2 and 3 will multiply their copy by 0 → their output is zeros, wasted compute but correct
+
+The alternative (**sparse dispatch**) would sort tokens by their chosen expert and pack only the real assignments. That's more efficient but much harder to implement and breaks `torch.compile`. The code comment even says: *"This should really not be run on a single machine, as we are reaching compute bound."*
+
+```
 # [2, 4]  →  [8, 4]
 
 # row 0: token0_vec  ← copy for expert 0
@@ -569,8 +593,6 @@ routed_in = hidden_states.repeat(router_scores.shape[1], 1)
 # row 7: token1_vec  ← copy for expert 3
 ```
 
-Every token is now copied once per expert. The next line zeros out the copies that don't belong to each expert.
-
 ---
 
 **Line 4**
@@ -578,39 +600,29 @@ Every token is now copied once per expert. The next line zeros out the copies th
 routed_in = routed_in * router_scores.transpose(0, 1).reshape(-1, 1)
 ```
 
-Unpacking step by step:
+**Why:** Zero out every copy that wasn't selected. This is the masking step — it turns the naive "give every expert every token" trick into a correct sparse operation where only the chosen expert gets a non-zero input.
 
 ```python
-router_scores:              [2, 4]
-router_scores.transpose(0,1): [4, 2]   # flip → (experts × tokens)
-
+router_scores.transpose(0,1)   # [2,4] → [4,2]: now (experts × tokens)
 # [[0.71, 0.0 ],   ← expert 0's weight for token0, token1
 #  [0.0,  0.69],   ← expert 1's weight
 #  [0.0,  0.0 ],   ← expert 2 (no token chose it)
 #  [0.0,  0.0 ]]   ← expert 3
 
-.reshape(-1, 1):   [8, 1]    ← flatten to a column vector
-# [[0.71],
-#  [0.0 ],
-#  [0.0 ],
-#  [0.69],
-#  [0.0 ],
-#  [0.0 ],
-#  [0.0 ],
-#  [0.0 ]]
+.reshape(-1, 1)    # [4,2] → [8,1]: flatten to match routed_in's row layout
+# [[0.71], [0.0], [0.0], [0.69], [0.0], [0.0], [0.0], [0.0]]
 ```
 
 Multiply with `routed_in [8, 4]`:
-
 ```
-row 0: token0_vec × 0.71  ← expert 0 gets token 0, scaled by confidence
+row 0: token0_vec × 0.71  ← expert 0 gets token 0, scaled by router confidence
 row 1: token1_vec × 0.0   ← expert 0 gets token 1 zeroed (token 1 didn't pick expert 0)
 row 2: token0_vec × 0.0   ← expert 1 gets token 0 zeroed
-row 3: token1_vec × 0.69  ← expert 1 gets token 1, scaled by confidence
+row 3: token1_vec × 0.69  ← expert 1 gets token 1, scaled by router confidence
 row 4–7: all zeros         ← experts 2 and 3 receive nothing
 ```
 
-Shape still `[8, 4]` but only 2 rows are non-zero.
+Shape still `[8, 4]` — only 2 rows carry real signal.
 
 ---
 
@@ -619,51 +631,48 @@ Shape still `[8, 4]` but only 2 rows are non-zero.
 routed_out = self.experts(routed_in)
 ```
 
+**Why:** Now that each expert's slot has the right tokens (others zeroed), we run all 4 experts through their FFN in one batched call.
+
 Stepping inside `Llama4TextExperts.forward`:
 
 ```python
 hidden_states = hidden_states.view(self.gate_up_proj.shape[0], -1, self.hidden_size)
-# gate_up_proj.shape[0] = num_experts = 4
+# Why: Reshape from flat [8,4] into [4,2,4] so that dimension 0 indexes
+#      the expert, making bmm process each expert's tokens independently.
 # [8, 4]  →  [4, 2, 4]
-#              ^  ^  ^
-#              |  |  └── hidden_size
-#              |  └───── T=2 tokens per expert slot
-#              └──────── expert index
 
 # Slice [0]: [token0×0.71,  token1×0.0 ]   ← expert 0's inputs
 # Slice [1]: [token0×0.0,   token1×0.69]   ← expert 1's inputs
-# Slice [2]: [zeros,        zeros       ]   ← expert 2 (nothing to do)
-# Slice [3]: [zeros,        zeros       ]   ← expert 3 (nothing to do)
+# Slice [2]: [zeros,        zeros       ]   ← expert 2
+# Slice [3]: [zeros,        zeros       ]   ← expert 3
 ```
 
 ```python
 gate_up = torch.bmm(hidden_states, self.gate_up_proj)
-# hidden_states [4,2,4] × gate_up_proj [4,4,12]
-# bmm: for each expert i → [2,4] @ [4,12] = [2,12]
-# result: [4, 2, 12]
-# Last dim 12 holds gate (first 6) and up (last 6) fused together
+# Why: Project each token up to a larger space. bmm handles all 4 experts
+#      at once — [4,2,4] @ [4,4,12] → [4,2,12].
+#      The last dim (12) holds gate (first 6) and up (last 6) fused.
 ```
 
 ```python
 gate, up = gate_up.chunk(2, dim=-1)
-# Split last dim 12 → two halves of 6
-# gate: [4, 2, 6]   ← controls how much signal passes
-# up:   [4, 2, 6]   ← the actual content being gated
+# Why: Split the fused projection into its two halves.
+#      gate [4,2,6] controls how much of the content passes through.
+#      up   [4,2,6] is the actual content to be gated.
 ```
 
 ```python
 next_states = torch.bmm((up * self.act_fn(gate)), self.down_proj)
-# self.act_fn = SiLU (smooth version of ReLU)
-# SiLU(gate): gate values near 0 get suppressed, large positives pass through
-# up * SiLU(gate): element-wise gate, shape [4, 2, 6]
-# bmm with down_proj [4,6,4]: project back to hidden_size
-# result: [4, 2, 4]
+# Why: Apply the SwiGLU activation — SiLU(gate) creates a smooth on/off
+#      valve, multiplied element-wise with up to selectively pass content.
+#      bmm with down_proj projects the result back to hidden_size.
+# [4,2,6] → [4,2,4]
 ```
 
 ```python
 next_states = next_states.view(-1, self.hidden_size)
-# [4, 2, 4]  →  [8, 4]
-# back to flat layout: (num_experts × T, hidden)
+# Why: Flatten back to [8,4] to match the shape that Llama4TextMoe.forward
+#      expects when it reshapes and sums across experts.
 ```
 
 `routed_out [8, 4]` — only 2 of 8 rows are non-zero.
@@ -675,16 +684,15 @@ next_states = next_states.view(-1, self.hidden_size)
 out = self.shared_expert(hidden_states)
 ```
 
-`hidden_states` here is still the **original** `[2, 4]` input (untouched; we only created `routed_in` from copies of it).
+**Why:** Every token should pass through a common dense FFN regardless of routing. This gives the model a guaranteed base computation that doesn't depend on which expert was chosen — stabilises training and ensures no token is ever "stranded" with a poor expert assignment.
 
-The shared expert is a standard `Llama4TextMLP`:
+`hidden_states` here is still the **original** `[2, 4]` (we never modified it, only made copies for `routed_in`).
+
 ```python
 # Inside Llama4TextMLP.forward:
 result = down_proj(activation_fn(gate_proj(x)) * up_proj(x))
 # Input [2, 4]  →  Output [2, 4]
 ```
-
-Every single token goes through this. No routing, no zeroing. `out [2, 4]`.
 
 ---
 
@@ -695,26 +703,20 @@ out.add_(
 )
 ```
 
-Unpacking:
+**Why:** Combine the two paths — shared expert (which ran on all tokens) and the routed expert (which ran on only the selected tokens) — by summing them. Each token's final representation is `shared_output + routed_output`.
 
 ```python
 routed_out.reshape(router_scores.shape[1], -1, routed_out.shape[-1])
-# routed_out: [8, 4]
-# reshape to: [4, 2, 4]   ← [num_experts, T, hidden]
-
-# Expert 0's contribution: [expert0(token0×0.71), zeros]
-# Expert 1's contribution: [zeros, expert1(token1×0.69)]
-# Expert 2's contribution: [zeros, zeros]
-# Expert 3's contribution: [zeros, zeros]
+# Why: Go from flat [8,4] back to [4,2,4] so we can sum along the expert axis.
 
 .sum(dim=0)
-# Sum across expert dimension: [4, 2, 4] → [2, 4]
-# token 0: expert0_out + 0 + 0 + 0  =  expert0_out
-# token 1: 0 + expert1_out + 0 + 0  =  expert1_out
+# Why: Collapse the expert dimension [4,2,4] → [2,4].
+#      For each token, we're summing contributions from all experts.
+#      Since only one expert per token is non-zero, this is effectively
+#      just picking that one expert's output.
 
 out.add_(...)
-# shared_expert_out  +=  routed_expert_out
-# In-place add to save memory allocation
+# Why: In-place addition avoids allocating a new tensor — saves memory.
 ```
 
 Each token's final value:
@@ -729,8 +731,7 @@ token_out = shared_expert(token) + router_score × chosen_expert(token)
 return out, router_logits
 ```
 
-`out [2, 4]` — goes back to the decoder layer, added to the residual stream.  
-`router_logits [2, 4]` — collected during training to compute a load-balancing loss (`router_aux_loss_coef = 0.001`) that discourages all tokens from always picking the same expert.
+**Why:** Return both values. `out` is what the decoder layer needs for the residual connection. `router_logits` are needed by the training loop to compute the auxiliary load-balancing loss (`router_aux_loss_coef = 0.001`) — without it, all tokens would collapse onto one or two "easy" experts.
 
 ---
 
@@ -739,40 +740,50 @@ return out, router_logits
 ```
 Input [1, 2, 4]
   │
-  │  reshape(-1, hidden_dim)
+  │  reshape(-1, hidden_dim)          WHY: flatten batch×seq so we work token-by-token
   ▼
 [2, 4]
   │
   ├────────────────────────────────────────► shared_expert (MLP, always runs)
+  │                                          WHY: guaranteed base computation for every token
   │                                              └─► out [2, 4]
   │
   ▼
 Router (Linear 4→4)
+  WHY: score each token against each expert to decide routing
   └─► logits [2, 4]
         └─► topk(k=1)  →  indices [[0],[1]]
+              WHY: pick the single best expert per token
               └─► scatter + sigmoid
+                    WHY: zero out non-winners; sigmoid gives independent confidence weight
                     └─► scores [2, 4]
                           [[0.71, 0,    0, 0],
                            [0,    0.69, 0, 0]]
   │
   ▼
-.repeat(4, 1)  →  routed_in [8, 4]   (4 copies of 2 tokens)
+.repeat(4, 1)  →  routed_in [8, 4]
+  WHY: dense dispatch — give every expert a copy of every token so bmm
+       can run all experts in one rectangular batch (zeros mask the extras)
   │
   ▼
-× scores.T.reshape(-1,1) [8,1]   →  zero out non-selected copies
+× scores.T.reshape(-1,1) [8,1]
+  WHY: zero out the copies that don't belong to each expert
   │
   ▼
 Llama4TextExperts.forward:
-  .view(4, 2, 4)              [4, 2, 4]
-  bmm with gate_up_proj       [4, 2, 12]
-  .chunk(2, dim=-1)           gate [4,2,6], up [4,2,6]
-  up * SiLU(gate)             [4, 2, 6]
-  bmm with down_proj          [4, 2, 4]
-  .view(-1, 4)                [8, 4]
+  .view(4, 2, 4)              WHY: separate expert dimension so bmm indexes per-expert
+  bmm with gate_up_proj       WHY: project all experts' tokens up in one GPU call
+  .chunk(2, dim=-1)           WHY: split fused gate+up into their two halves
+  up * SiLU(gate)             WHY: SwiGLU gating — gate controls how much content passes
+  bmm with down_proj          WHY: project back to hidden_size
+  .view(-1, 4)                WHY: flatten back for the reshape+sum that follows
   │
   ▼
-.reshape(4, 2, 4).sum(dim=0)  →  [2, 4]
+.reshape(4, 2, 4).sum(dim=0)
+  WHY: collapse expert dimension — each token picks up only its one expert's output
+  →  [2, 4]
   │
   ▼
 out (shared) + routed_sum  =  final output [2, 4]
+  WHY: every token gets: stable base (shared) + specialised signal (routed)
 ```
