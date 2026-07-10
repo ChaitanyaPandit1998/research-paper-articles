@@ -2,6 +2,34 @@
 
 ---
 
+## Introduction
+
+PyTorch is the dominant framework for building and training deep learning models. At its core, it provides one fundamental data structure — the **tensor** — and a rich set of operations over it. Everything else in PyTorch, from neural network layers to optimisers to distributed training, is built on top of tensors.
+
+A tensor is a generalisation of familiar mathematical objects: a scalar is a 0-dimensional tensor, a vector is 1-dimensional, a matrix is 2-dimensional, and anything beyond that is simply called an N-dimensional tensor. What makes PyTorch's tensors powerful is not just the abstraction, but what comes attached to it: automatic differentiation, GPU acceleration, memory-efficient views, and a broadcasting system that eliminates most explicit loops.
+
+If you are reading model code — whether it is GPT, Llama, or any attention-based architecture — tensors are the language the code is written in. A single forward pass through a transformer is a sequence of roughly 30 tensor operations. Understanding what each one does to the shape, memory, and gradient graph of a tensor is the difference between reading model code and truly understanding it.
+
+This article builds that understanding from the ground up, ending with a fully annotated attention forward pass where every line traces back to a concept explained earlier.
+
+---
+
+## What You Will Learn
+
+By the end of this article you will be able to:
+
+- **Create and inspect tensors** — understand `dtype`, `device`, `shape`, and `numel()`, and know when to use factory functions vs `torch.tensor()`
+- **Index and slice tensors** — use boolean masks, `torch.where()`, and integer tensor indexing the way transformer code actually uses them
+- **Manipulate shapes without confusion** — know the difference between `view()` and `reshape()`, understand why `transpose()` requires `contiguous()` before `view()`, and use `squeeze`, `unsqueeze`, `expand`, and `permute` correctly
+- **Understand broadcasting** — know the alignment rules, spot silent broadcasting bugs, and see how GQA uses broadcasting to avoid memory copies
+- **Run math operations efficiently** — use reductions with `dim=` and `keepdim=`, perform batched matmul with `@`, read `einsum` notation, and understand why numerical stability matters for softmax
+- **Understand memory and strides** — know what storage is, why `transpose()` is zero-copy, what `is_contiguous()` means, and when `clone()` vs `detach()` is the right tool
+- **Use autograd correctly** — understand the computational graph, `requires_grad`, `backward()`, `no_grad()`, and why in-place ops break gradient flow
+- **Read and write transformer code** — follow the head-splitting pattern, understand causal masking with `masked_fill()`, and trace shapes through a complete attention forward pass
+- **Debug tensor errors** — recognise and fix the five most common runtime errors: device mismatch, matmul shape mismatch, non-contiguous view, dtype mismatch, and silent `nan` in loss
+
+---
+
 ## 1. Tensor Basics
 
 ### What a tensor is
@@ -1101,3 +1129,47 @@ A reference for the operations that change tensor shape — input shape, output 
 | `torch.chunk(x, n, dim=1)` | `[M, N]` | list of `[M, N/n]` | No (views) | Splits into n equal chunks |
 | `a @ b` | `[...,M,K]`, `[...,K,N]` | `[...,M,N]` | Yes (result) | Batches over leading dims |
 | `x[mask]` (bool mask) | `[M, N]`, mask `[M,N]` | `[K, N]` | Yes | K = number of True values |
+
+---
+
+## Summary
+
+Tensors are the single data structure underlying all of PyTorch. Everything else — layers, optimisers, autograd, distributed training — operates on tensors and returns tensors.
+
+The concepts in this article form a dependency chain:
+
+- **Storage and strides** (section 6) explain why `view()` is zero-copy and why `transpose()` breaks it. Without this, the behaviour of shape operations looks arbitrary.
+- **Shape manipulation** (section 3) is the vocabulary of transformer code. The `view()` + `transpose()` head-splitting pattern, the `contiguous()` requirement, `expand()` vs `repeat()` — these appear in every attention implementation.
+- **Broadcasting** (section 4) is how masks and GQA head expansion work efficiently. Knowing the right-alignment rule lets you read shape errors immediately instead of guessing.
+- **Autograd** (section 7) is what makes PyTorch a training framework rather than a numerical library. Understanding the computational graph, `requires_grad`, and `detach()` is required for writing anything that trains correctly.
+- **The full attention pass** (section 11) is the payoff. Every line in that example traces back to one of the concepts above. Once you can read that code with confidence, you can read any transformer implementation.
+
+**The three things most worth internalising:**
+
+1. A tensor is a view into flat memory — shape and strides are a navigation recipe, not the data itself. Most "shape operations" don't move anything.
+2. The `@` operator batches over all leading dims and does matmul over the last two. This is how all multi-head attention scoring works.
+3. A `RuntimeError` about shapes or devices always tells you the actual shapes in the message. Read the message before guessing.
+
+---
+
+## Further Reading
+
+**PyTorch official documentation**
+
+- **Tensor tutorial** — the official introduction to PyTorch tensors, with interactive examples. Covers creation, indexing, and basic operations: pytorch.org/tutorials/beginner/basics/tensorqs_tutorial.html
+- **Autograd mechanics** — the definitive explanation of how PyTorch's automatic differentiation works, including the computational graph and gradient accumulation: pytorch.org/docs/stable/notes/autograd.html
+- **torch.Tensor documentation** — the full API reference for every tensor method and attribute: pytorch.org/docs/stable/tensors.html
+
+**Understanding memory and performance**
+
+- **PyTorch internals — Edward Yang** — a deep dive into how tensors, storage, and strides work under the hood. Essential reading if you want to understand contiguity and memory layout: blog.ezyang.com/2019/05/pytorch-internals
+- **PyTorch memory management** — the official notes on CUDA memory allocation, caching, and how to track usage: pytorch.org/docs/stable/notes/cuda.html
+
+**Transformer-specific tensor patterns**
+
+- **The Annotated Transformer (Harvard NLP)** — a line-by-line walkthrough of the original Transformer paper implemented in PyTorch. Every shape transformation is visible: nlp.seas.harvard.edu/annotated-transformer
+- **Llama model source (Hugging Face)** — reading actual production transformer code is the fastest way to see all these patterns applied. The `modeling_llama.py` file contains the head-splitting pattern, GQA expansion, RoPE rotation, and causal masking in one place: github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py
+
+**Going deeper on einsum**
+
+- **einsum is all you need** — a focused tutorial on Einstein summation notation with examples ranging from dot products to attention: rockt.ch/2018/04/30/einsum
