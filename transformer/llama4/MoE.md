@@ -180,3 +180,222 @@ output = shared_expert_out + experts_out    [B*S, H]
 ```
 
 **Router auxiliary loss:** `router_logits` are returned from `Llama4TextMoe` and collected by `Llama4TextModel` (via `_can_record_outputs = {"router_logits": Llama4TextMoe}`). During training, a load-balancing auxiliary loss (coefficient `router_aux_loss_coef = 0.001`) encourages equal utilisation across experts, preventing all tokens from routing to a single expert.
+
+---
+
+## Plain-English Walkthrough
+
+### The Big Idea
+
+In a regular transformer, **every token passes through the same FFN** in every layer. MoE changes this: instead of one large FFN, you have **multiple smaller ones called "experts"**, and each token only uses **one (or a few) of them**. The model has more total parameters, but each token only touches a fraction — making it **cheaper to run than its size suggests**.
+
+---
+
+### 1. Not Every Layer Is MoE — They're Interleaved
+
+`configuration_llama4.py:185-194` — the list of MoE layer indices is built at config init:
+
+```python
+self.moe_layers = list(
+    range(
+        self.interleave_moe_layer_step - 1,  # start
+        self.num_hidden_layers,               # end
+        self.interleave_moe_layer_step,       # step
+    )
+)
+```
+
+`modeling_llama4.py:419-423` — each decoder layer checks this at construction:
+
+```python
+self.is_moe_layer = layer_idx in config.moe_layers
+if self.is_moe_layer:
+    self.feed_forward = Llama4TextMoe(config)
+else:
+    self.feed_forward = Llama4TextMLP(config, intermediate_size=config.intermediate_size_mlp)
+```
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   48 Decoder Layers                     │
+│                                                         │
+│  interleave_moe_layer_step = 1  →  ALL layers are MoE  │
+│                                                         │
+│  interleave_moe_layer_step = 2:                         │
+│  Layer 0 ──► Dense MLP (Llama4TextMLP)                 │
+│  Layer 1 ──► MoE FFN   (Llama4TextMoe)                 │
+│  Layer 2 ──► Dense MLP (Llama4TextMLP)                 │
+│  Layer 3 ──► MoE FFN   (Llama4TextMoe)  ...            │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 2. The MoE Layer Has Three Parts
+
+`modeling_llama4.py:157-165`
+
+```python
+class Llama4TextMoe(nn.Module):
+    def __init__(self, config):
+        self.experts       = Llama4TextExperts(config)  # 16 expert FFNs, batched
+        self.router        = Llama4Router(config)       # decides which expert gets each token
+        self.shared_expert = Llama4TextMLP(config)      # always-on, every token uses it
+```
+
+```
+                  ┌──────────────────────────────────────┐
+                  │         Llama4TextMoe                │
+                  │                                      │
+   token          │    ┌──────────┐                      │
+   hidden_state ──┼───►│  Router  │──► picks 1 expert   │
+                  │    └──────────┘         │            │
+                  │                         ▼            │
+                  │    ┌────────────────────────────┐    │
+                  │    │  Llama4TextExperts (x16)   │    │
+                  │    │  Only the selected one     │    │
+                  │    │  actually contributes      │    │
+                  │    └────────────────────────────┘    │
+                  │              │                       │
+                  │    ┌─────────┴──────┐                │
+                  │    │  Shared Expert │ ◄── always runs│
+                  │    │ (Llama4TextMLP)│                │
+                  │    └────────────────┘                │
+                  │              │                       │
+                  │   output = shared + routed           │
+                  └──────────────────────────────────────┘
+```
+
+The unique thing in LLaMA 4: a **shared expert** processes **every token**, on top of the routed expert. All tokens get a common base computation; the routed expert adds specialisation on top.
+
+---
+
+### 3. The Router — "Which Expert Should Handle This Token?"
+
+`modeling_llama4.py:142-153`
+
+```python
+class Llama4Router(nn.Linear):
+    def forward(self, hidden_states):
+        router_logits = super().forward(hidden_states)            # [tokens, 16]
+        router_top_value, router_indices = torch.topk(router_logits, self.top_k, dim=1)
+        router_scores = torch.full_like(router_logits, float("-inf"))
+                            .scatter_(1, router_indices, router_top_value)
+        router_scores = torch.sigmoid(router_scores.float())
+        return router_scores, router_logits
+```
+
+The router is a **linear classifier** projecting each token from `hidden_size` to `num_experts`:
+
+```
+token vector [5120]
+       │
+       ▼
+  Linear layer  (5120 → 16)
+       │
+       ▼
+ 16 scores, one per expert
+       │
+       ▼
+  pick top-1  →  expert index + score
+
+  e.g.  Expert 7: 0.93  ◄── this token routes here
+        Expert 3: 0.71      (zeroed out, not selected)
+        Expert 11: 0.65     (zeroed out, not selected)
+```
+
+Non-selected experts get `-inf` → `sigmoid(-inf) = 0`, so they contribute nothing. The selected expert's score is an independent confidence value (sigmoid, not softmax) — it does not compete with other experts.
+
+---
+
+### 4. The Experts — Batched FFNs
+
+`modeling_llama4.py:56-85`
+
+Rather than 16 separate `nn.Linear` layers, all expert weights live in **one 3D tensor**:
+
+```python
+self.gate_up_proj = nn.Parameter(torch.zeros(num_experts, hidden_size, 2 * expert_dim))
+# shape: [16, 5120, 16384]
+
+self.down_proj = nn.Parameter(torch.empty((num_experts, expert_dim, hidden_size)))
+# shape: [16, 8192, 5120]
+```
+
+Each expert is a **SwiGLU FFN**, same as LLaMA's standard MLP:
+
+```
+token ──► [gate_proj, up_proj] ──► gate * silu(up) ──► down_proj ──► output
+```
+
+One `torch.bmm` handles all 16 experts at once — much more GPU-efficient than 16 separate matmuls.
+
+---
+
+### 5. Full MoE Forward Pass
+
+`modeling_llama4.py:167-175`
+
+```python
+def forward(self, hidden_states):
+    hidden_states = hidden_states.reshape(-1, self.hidden_dim)          # [T, H]
+    router_scores, router_logits = self.router(hidden_states)           # [T, 16]
+    routed_in = hidden_states.repeat(router_scores.shape[1], 1)         # [T*16, H]
+    routed_in = routed_in * router_scores.transpose(0, 1).reshape(-1, 1)# scale by score (0 for non-selected)
+    routed_out = self.experts(routed_in)                                # [T*16, H]
+    out = self.shared_expert(hidden_states)                             # [T, H]
+    out.add_(routed_out.reshape(router_scores.shape[1], -1, routed_out.shape[-1]).sum(dim=0))
+    return out, router_logits
+```
+
+```
+Input tokens  [T, 5120]
+      │
+      ├──────────────────────────────────────►  Shared Expert (MLP)  ──► out_shared [T, 5120]
+      │
+      ▼
+   Router  →  scores [T, 16]  (mostly 0, 1 non-zero per token)
+      │
+      ▼
+   Scale each token copy by its router score
+      │
+      ▼
+   Experts.forward()  →  out_routed [T, 5120]
+      │
+      ▼
+   out_shared + out_routed  =  final output [T, 5120]
+```
+
+---
+
+### 6. Key Config Numbers (LLaMA 4 Scout 17B-16E)
+
+`configuration_llama4.py:139-194`
+
+| Param | Value | Meaning |
+|---|---|---|
+| `num_local_experts` | 16 | 16 experts per MoE layer |
+| `num_experts_per_tok` | 1 | each token routed to exactly 1 expert |
+| `hidden_size` | 5120 | token vector size |
+| `intermediate_size` | 8192 | expert FFN width |
+| `intermediate_size_mlp` | 16384 | dense layer FFN width |
+| `num_hidden_layers` | 48 | total layers |
+| `interleave_moe_layer_step` | 1 | all layers are MoE by default |
+
+---
+
+### 7. Why This Design?
+
+```
+Traditional dense model:
+  Every token ──► 1 huge FFN (all params, every time)
+
+MoE model:
+  Every token ──► 1 small expert (1/16 of routed params) + shared expert
+  Total stored params = 16× a single expert → much larger model
+  Active params per token = much smaller → cheaper per forward pass
+
+e.g. "17B active params, 109B total params"
+```
+
+Over training, experts tend to **specialise** — different experts handle different token types (code, math, language, etc.). This is emergent, not hardcoded.
