@@ -259,6 +259,21 @@ Nearly the same result as SwiGLU's $[0, -3.5232]$ — the first dimension is gat
 - **Pros:** same expressiveness gains as SwiGLU over non-gated FFNs; GELU's smoothness carried into the gate.
 - **Cons:** same extra-parameter, extra-multiply cost as SwiGLU; no consistent empirical edge over SwiGLU — largely an architectural choice.
 
+### Pros and cons at a glance
+
+*Condensed from the bullet lists above, for quick side-by-side scanning.*
+
+| Function | Pros | Cons |
+|---|---|---|
+| Sigmoid | Output bounded in (0,1), reads as a probability; smooth and differentiable everywhere | Vanishing gradients away from x=0; not zero-centered; costs an exponential |
+| Tanh | Zero-centered output — better-behaved gradients than sigmoid; smooth, well-understood, bounded | Still saturates and vanishes at the tails; exponential-based, more expensive than ReLU |
+| ReLU | No vanishing gradient for x>0; trivially cheap (one comparison); induces sparsity | Dying neurons (permanently-negative units stop learning); not zero-centered; non-differentiable kink at 0 |
+| Leaky ReLU | Fixes dying-ReLU by keeping gradient alive for x<0; as cheap as ReLU | α is an extra hyperparameter to tune; empirical gains over ReLU are inconsistent |
+| GELU | Smooth everywhere, no dead zone; strong empirical performance in transformers; preserves small negative signal | More expensive than ReLU (erf/tanh approximation); mostly superseded by SiLU/SwiGLU in newer LLMs |
+| SiLU / Swish | Smooth, non-monotonic near zero, no dead zone; cheaper than GELU; self-gating | Not zero-centered; marginally more expensive than plain ReLU |
+| SwiGLU | Outperforms plain ReLU/GELU FFNs at equal compute; gate and content learned separately — more expressive | Three weight matrices instead of two; extra elementwise multiply adds compute |
+| GeGLU | Same expressiveness gains as SwiGLU; GELU's smoothness carried into the gate | Same extra-parameter/extra-multiply cost as SwiGLU; no consistent empirical edge over it |
+
 ---
 
 ## 4. Gradients and shapes, in numbers
