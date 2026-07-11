@@ -16,7 +16,7 @@ An activation function is a small, fixed, elementwise function applied to a laye
 1. [What are they?](#1-what-are-they)
 2. [Where they live in a network](#2-where-they-live-in-a-network)
 3. [The functions in active use](#3-the-functions-in-active-use)
-4. [Worked examples](#4-worked-examples)
+4. [Gradients and shapes, in numbers](#4-gradients-and-shapes-in-numbers)
 5. [A runnable PyTorch comparison](#5-a-runnable-pytorch-comparison)
 6. [What activation functions don't solve](#6-what-activation-functions-dont-solve)
 7. [Summary table](#7-summary-table)
@@ -85,7 +85,7 @@ The shape is a smooth S: flat near both extremes, steepest at $x=0$, output sque
 
 $$\sigma'(x) = \sigma(x)\big(1-\sigma(x)\big)$$
 
-maxes out at just 0.25 (at $x=0$) and shrinks toward zero at both tails, so gradients flowing backward through several sigmoid layers shrink geometrically. That's the vanishing-gradient problem that made deep sigmoid networks nearly untrainable — worked out in numbers in [Section 4](#4-worked-examples).
+maxes out at just 0.25 (at $x=0$) and shrinks toward zero at both tails, so gradients flowing backward through several sigmoid layers shrink geometrically. That's the vanishing-gradient problem that made deep sigmoid networks nearly untrainable — worked out in numbers in [Section 4](#4-gradients-and-shapes-in-numbers).
 
 **Worked example.** Take $x = 1.5$:
 
@@ -261,7 +261,9 @@ Nearly the same result as SwiGLU's $[0, -3.5232]$ — the first dimension is gat
 
 ---
 
-## 4. Worked examples
+## 4. Gradients and shapes, in numbers
+
+Two examples worth sitting with — why sigmoid networks stall, and where ReLU, GELU, and SiLU actually disagree.
 
 ### Example 1 — Why Sigmoid Networks Stop Learning
 
@@ -370,6 +372,8 @@ Objectivity requires noting that no activation function is a complete fix, and p
 ---
 
 ## 7. Summary table
+
+*Formulas below are compressed to fit a table row — see [Section 3](#3-the-functions-in-active-use) for each one written out on its own line, with a worked example.*
 
 | Function | Formula | Typical use | Key tradeoff |
 |---|---|---|---|
