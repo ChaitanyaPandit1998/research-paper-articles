@@ -223,11 +223,25 @@ The more striking ablation is what happens when the shared expert is removed and
 
 **Not every specialization claim holds up under inspection.** Worth a note of intellectual honesty: the Mixtral technical report (Jiang et al., 2024) analyzed which tokens its router sent to which experts and found *no strong evidence of clean domain-based specialization* — experts didn't cleanly split along lines like "math" or "code" the way Section 3 of this article (and much popular MoE writing) implies. Some structure showed up in more syntactic patterns instead. This doesn't contradict DeepSeekMoE's specialization results, which used objectives specifically designed to encourage it — but it's a reminder that "the experts specialize" is a design goal some architectures actively pursue, not an automatic property of MoE itself.
 
+### So Where Does MoE Actually Stand?
+
+Putting the tables together, three inferences hold up:
+
+**1. At matched compute, MoE beats dense — consistently, not marginally.** Table 1 isn't a close contest: DeepSeekMoE beats the dense baseline on every single metric, often by a wide margin (TriviaQA: 16.6 vs. 4.9 — more than 3x). This isn't "MoE is a reasonable efficiency trade-off with a small quality cost." At equal compute, it's a strictly better result across the board. The efficiency story from Section 2 has hard evidence behind it, not just a plausible argument.
+
+**2. MoE approaches, but doesn't fully reach, the dense upper bound.** DeepSeekMoE's own paper is careful about this: DeepSeekMoE 2B "nearly approaches" the performance of an equivalent dense model with 16x the FFN parameters (Dense×16) — meaning if you gave a dense model all the parameters MoE has spread across its experts, it would still edge out the MoE version slightly, since a dense model can bring its full parameter set to bear on every token instead of a routed subset. That gap is small at this scale, and it's the price MoE pays for its efficiency — the theoretical ceiling still belongs to dense. What changes the calculus is that nobody can afford to run that dense model in practice, which is the whole point of Section 4.
+
+**3. Architecture-level choices compound at scale, and the numbers get more dramatic, not less.** DeepSeekMoE's own scaling results (not an ablation, but worth citing here) show the gap widening as models grow: at 16B parameters, DeepSeekMoE matches LLaMA2 7B using only about 40% of the compute; at 145B, it matches the 67B dense DeepSeek model using as little as 18.2% of the compute. If MoE's advantage were a small-scale artifact, it would shrink as models grew. Instead it grows — which is the strongest evidence in this article for why virtually every frontier lab adopted some form of MoE rather than continuing to scale dense models.
+
+**Where this leaves dense models.** Dense architectures aren't obsolete — they're simpler to train, easier to serve (no expert parallelism, no routing collapse to guard against), and still set the theoretical performance ceiling per parameter. That's why dense models remain common at smaller scales, in latency-sensitive or memory-constrained deployments, and in cases where the engineering overhead of MoE (Section 4) isn't worth paying. But at the frontier — where the question is "how much can this model know, for a compute budget we can actually afford to run" — the tables above are why the answer has shifted decisively toward MoE.
+
 ---
 
 ## Closing
 
 The story this article opened with — the village doctor who couldn't grow her knowledge without slowing down every patient — is the exact trade-off dense FFNs are stuck with, and MoE is the architectural fix: split the doctor into a **hospital of specialists**, and route each patient to only the ones they need. That's what let model *capacity* and per-token *compute* stop moving in lockstep, and it's why nearly every frontier open model released since 2024 has adopted some form of it.
+
+Section 8 is what turns that story into evidence rather than analogy: at matched compute, MoE doesn't just edge out dense models, it wins by wide margins across unrelated benchmarks — and the gap gets *larger*, not smaller, as models scale up. Dense models still hold the theoretical ceiling per parameter; nobody has repealed that. What's changed is that the ceiling stopped being the constraint that mattered. The constraint that matters is what you can afford to run, and on that measure, the tables settle the argument.
 
 Shazeer's 2017 paper called the sparsely-gated layer a way to add capacity "without a proportional increase in computation" — a modest description of what turned out to be a foundational idea. **DeepSeek didn't reinvent that idea in 2024; it sharpened it**, splitting coarse experts into finer ones and giving the router a cleaner signal to work with. *The lesson underneath both is the same one that keeps showing up across model architecture: growth doesn't have to mean every part of the system doing more work on every input — it can mean building a system where* **each part only does the work it's actually good at.**
 
@@ -240,6 +254,8 @@ Shazeer's 2017 paper called the sparsely-gated layer a way to add capacity "with
 - **The trade-off doesn't disappear — it moves.** MoE saves compute, not memory: every expert has to stay resident somewhere in case it's routed to, which is why large MoE models need expert parallelism and real distributed-systems engineering to serve.
 - **Routing is the hard part.** Left unchecked, routers collapse onto a handful of favorite experts. Most MoE-specific research — auxiliary-loss-free balancing, specialization losses, expert-driven routing — exists to keep that from happening.
 - **DeepSeek refined MoE; it didn't invent it.** The lineage runs from Shazeer's 2017 sparsely-gated layer through GShard and Switch Transformer to DeepSeekMoE's fine-grained expert segmentation and shared experts — accurate credit matters more than a flashy headline.
+- **At matched compute, the ablations show MoE winning decisively, not marginally.** DeepSeekMoE beat a dense baseline of equal compute on every benchmark tested, by wide margins — e.g. more than 3x on TriviaQA (Section 8). Dense models still hold the theoretical ceiling per parameter, but that ceiling stopped being the binding constraint.
+- **The advantage grows with scale, which is why it's not a fad.** DeepSeekMoE matched a 7B dense model at ~40% of its compute at 16B parameters, and matched a 67B dense model at as little as ~18% of its compute at 145B parameters — a widening gap, not a shrinking one, as models get bigger.
 - **MoE is now the default at the frontier.** DeepSeek, Llama 4, Mixtral, Qwen3, and others all use some form of it — correctly reading "37B active / 671B total" is now baseline literacy for understanding how modern LLMs actually run.
 
 ---
