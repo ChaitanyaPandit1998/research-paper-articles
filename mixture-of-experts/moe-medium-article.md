@@ -26,7 +26,7 @@ By the end of this article, you should be able to:
 
 ---
 
-## 1. What Problem Does This Solve? (Shortcomings of Dense FFNs)
+## 1. The Problem: One Network, Every Token
 
 **A story: the village doctor.**
 
@@ -54,7 +54,7 @@ What the village actually needed, and what a dense FFN actually needs, is a way 
 
 ---
 
-## 2. What Is Mixture of Experts?
+## 2. Mixture of Experts: Specialists Instead of One Generalist
 
 Picture a hospital instead of a lone village doctor. When a patient walks in, you don't send them to every doctor in the building — a general practitioner looks at the case and refers them to the right specialist: a cardiologist, a dermatologist, whoever fits. The hospital as a whole knows a huge amount, but any single patient only interacts with one or two of its doctors.
 
@@ -71,7 +71,7 @@ The result: the model's **total parameter count** can be enormous (all the exper
 
 ---
 
-## 3. Why Would You Want This? (Use Cases)
+## 3. Why It Matters: Where MoE Earns Its Keep
 
 **Scaling knowledge without scaling cost.** The main reason labs adopt MoE is simple: you can grow a model's capacity (how much it can "know" or represent) without a proportional growth in the cost of running it. This is why frontier-scale models today routinely have total parameter counts in the hundreds of billions to low trillions, while only activating tens of billions per token — something that would be computationally unaffordable in a dense model of the same total size.
 
@@ -97,7 +97,7 @@ None of this erases MoE's advantage — it's still the reason frontier models ca
 
 ---
 
-## 5. Architecture Diagram
+## 5. Inside an MoE Layer: The Architecture
 
 Here's what a single MoE layer looks like, replacing the FFN inside a transformer block:
 
@@ -136,7 +136,7 @@ flowchart TD
 
 ---
 
-## 6. Which LLMs Are Using MoE?
+## 6. Who's Using MoE: The Current Landscape
 
 MoE went from a research curiosity to the default architecture for frontier-scale open models within a few years. As of mid-2026:
 
@@ -159,7 +159,7 @@ A few things worth noting:
 
 ---
 
-## 7. Current Research Directions
+## 7. Where the Research Is Headed
 
 MoE looks simple in a diagram, but making the router behave well in practice is an active, ongoing research problem. A few threads as of 2026:
 
@@ -181,7 +181,18 @@ MoE looks simple in a diagram, but making the router behave well in practice is 
 
 The story this article opened with — the village doctor who couldn't grow her knowledge without slowing down every patient — is the exact trade-off dense FFNs are stuck with, and MoE is the architectural fix: split the doctor into a hospital of specialists, and route each patient to only the ones they need. That's what let model *capacity* and per-token *compute* stop moving in lockstep, and it's why nearly every frontier open model released since 2024 has adopted some form of it.
 
-But as Section 4 covered, MoE didn't remove the trade-off — it moved it. Compute got cheaper per token; memory, serving infrastructure, and training stability got harder. Most of what's happening in MoE research right now (Section 7) isn't about the core idea — routing tokens to a subset of experts — it's about managing that new trade as cleanly as possible: balancing load without fighting the training objective, making experts specialize rather than overlap, and figuring out who should really be doing the choosing, the router or the experts themselves.
+Shazeer's 2017 paper called the sparsely-gated layer a way to add capacity "without a proportional increase in computation" — a modest description of what turned out to be a foundational idea. DeepSeek didn't reinvent that idea in 2024; it sharpened it, splitting coarse experts into finer ones and giving the router a cleaner signal to work with. The lesson underneath both is the same one that keeps showing up across model architecture: growth doesn't have to mean every part of the system doing more work on every input — it can mean building a system where each part only does the work it's actually good at.
+
+---
+
+## Key Takeaways
+
+- **Dense FFNs tie capacity to compute.** Every token passes through every parameter, so growing what the network knows always makes every single token more expensive to process — there's no way to add knowledge without every visit getting slower.
+- **MoE decouples the two.** By routing each token to a small number of experts out of many, total model capacity can grow into the hundreds of billions or trillions of parameters while the compute cost per token stays small and roughly fixed.
+- **The trade-off doesn't disappear — it moves.** MoE saves compute, not memory: every expert has to stay resident somewhere in case it's routed to, which is why large MoE models need expert parallelism and real distributed-systems engineering to serve.
+- **Routing is the hard part.** Left unchecked, routers collapse onto a handful of favorite experts. Most MoE-specific research — auxiliary-loss-free balancing, specialization losses, expert-driven routing — exists to keep that from happening.
+- **DeepSeek refined MoE; it didn't invent it.** The lineage runs from Shazeer's 2017 sparsely-gated layer through GShard and Switch Transformer to DeepSeekMoE's fine-grained expert segmentation and shared experts — accurate credit matters more than a flashy headline.
+- **MoE is now the default at the frontier.** DeepSeek, Llama 4, Mixtral, Qwen3, and others all use some form of it — correctly reading "37B active / 671B total" is now baseline literacy for understanding how modern LLMs actually run.
 
 ---
 
