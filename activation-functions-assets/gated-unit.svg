@@ -1,0 +1,35 @@
+<svg viewBox="0 0 640 260" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<rect x="0" y="0" width="640" height="260" fill="#fffef9"/>
+<defs>
+  <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 Z" fill="#1c201f4a"/>
+  </marker>
+</defs>
+<text x="24" y="26" font-size="14" fill="#1c201f" font-weight="700" font-family="Georgia,ui-serif,serif">Gated Linear Unit (GLU) architecture</text>
+<text x="616" y="26" font-size="10.5" fill="#565f5b" text-anchor="end">SwiGLU uses SiLU as f · GeGLU uses GELU as f</text>
+<rect x="24" y="106" width="70" height="48" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="59.0" y="128.0" font-size="13" fill="#1c201f" text-anchor="middle" font-weight="600">x</text>
+<text x="59.0" y="144.0" font-size="10.5" fill="#565f5b" text-anchor="middle">input</text>
+<line x1="94" y1="130" x2="142" y2="90" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="94" y1="130" x2="142" y2="170" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="150" y="66" width="130" height="48" rx="3" fill="#f2efe6" stroke="#a8641a" stroke-width="1.4"/>
+<text x="215.0" y="88.0" font-size="13" fill="#a8641a" text-anchor="middle" font-weight="600">f(xW)</text>
+<text x="215.0" y="104.0" font-size="10.5" fill="#565f5b" text-anchor="middle">gate</text>
+<rect x="150" y="146" width="130" height="48" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="215.0" y="168.0" font-size="13" fill="#1c201f" text-anchor="middle" font-weight="600">xV</text>
+<text x="215.0" y="184.0" font-size="10.5" fill="#565f5b" text-anchor="middle">content</text>
+<line x1="280" y1="90" x2="332" y2="124" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="280" y1="170" x2="332" y2="136" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<circle cx="366" cy="130" r="20" fill="#f2efe6" stroke="#1f6e5f" stroke-width="1.6"/>
+<text x="366" y="136" font-size="18" fill="#1f6e5f" text-anchor="middle" font-weight="700">&#215;</text>
+<line x1="386" y1="130" x2="434" y2="130" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="442" y="106" width="90" height="48" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="487.0" y="128.0" font-size="13" fill="#1c201f" text-anchor="middle" font-weight="600">W₂(·)</text>
+<text x="487.0" y="144.0" font-size="10.5" fill="#565f5b" text-anchor="middle">linear</text>
+<line x1="532" y1="130" x2="580" y2="130" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="588" y="106" width="44" height="48" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="610.0" y="128.0" font-size="13" fill="#1c201f" text-anchor="middle" font-weight="600">y</text>
+<text x="610.0" y="144.0" font-size="10.5" fill="#565f5b" text-anchor="middle">output</text>
+<text x="24" y="240" font-size="11" fill="#565f5b">One projection (xW) is squashed through an activation to become a gate; a second, independent projection (xV) carries content.</text>
+<text x="24" y="254" font-size="11" fill="#565f5b">Elementwise multiplying the two lets the gate decide, per dimension, how much content survives before the final linear layer.</text>
+</svg>

@@ -81,6 +81,8 @@ Seven functions, three eras: the saturating classics, the ReLU family that made 
 
 $$\sigma(x) = \frac{1}{1 + e^{-x}}$$
 
+![Sigmoid function plot, showing the S-curve saturating toward 0 and 1](activation-functions-assets/sigmoid.svg)
+
 The shape is a smooth S: flat near both extremes, steepest at $x=0$, output squeezed permanently into $(0,1)$. For large positive $x$ it saturates at 1; for large negative $x$ it saturates at 0. That squeezing was the whole appeal — it turns any real number into something that reads like a probability — but the same squeezing is its downfall: the derivative
 
 $$\sigma'(x) = \sigma(x)\big(1-\sigma(x)\big)$$
@@ -104,6 +106,8 @@ A moderately positive input is squashed to a number close to, but never reaching
 
 $$\tanh(x) = \frac{e^{x} - e^{-x}}{e^{x} + e^{-x}} = 2\sigma(2x) - 1$$
 
+![Tanh function plot, showing the S-curve saturating toward -1 and 1](activation-functions-assets/tanh.svg)
+
 Same S-shape as sigmoid, same saturating tails, same vanishing-gradient failure mode for deep stacks — it's a rescaled sigmoid, so the math inherits both the strength and the weakness. It became the default hidden-layer activation for RNNs (and still is, inside LSTM/GRU cell states) precisely because zero-centering made optimization noticeably more stable than sigmoid, even though the saturation problem never went away.
 
 **Worked example.** Take the same $x = 1.5$ used for sigmoid, so the two are directly comparable:
@@ -123,6 +127,8 @@ Notice it's pushed much closer to its ceiling (0.9051 out of a max of 1) than si
 
 $$\text{ReLU}(x) = \max(0, x)$$
 
+![ReLU function plot, showing a flat zero region and a 45-degree line for positive x](activation-functions-assets/relu.svg)
+
 The shape is two straight line segments meeting at a corner: flat at zero for all $x \le 0$, then a perfect 45° line for $x > 0$. It doesn't saturate on the positive side at all — the gradient there is a constant 1, so it doesn't shrink no matter how deep the stack goes, which is exactly why it unlocked training networks dozens of layers deep. The tradeoff is bluntness: any neuron that lands in negative territory outputs zero and has zero gradient, so if its weights get pushed into a regime where it's *always* negative, it stops updating forever — the "dying ReLU" problem.
 
 **Worked example.** Take $x = -2$ and $x = 3$:
@@ -141,6 +147,8 @@ The negative input is discarded completely; the positive input passes through un
 **Intuition first.** The same one-way valve as ReLU, but with a pinhole leak on the closed side — negative inputs aren't zeroed out, they're just heavily throttled, scaled down by a small constant instead of clamped flat.
 
 $$\text{LeakyReLU}(x) = \begin{cases} x & x > 0 \\ \alpha x & x \le 0 \end{cases} \qquad (\text{typically } \alpha = 0.01)$$
+
+![Leaky ReLU function plot, showing a shallow negative slope instead of a flat zero region](activation-functions-assets/leaky_relu.svg)
 
 Visually it's almost indistinguishable from ReLU — the same hinge at the origin — except the left arm isn't flat, it's a very shallow downward line instead of sitting at zero. That tiny slope is the entire fix: a neuron that lands in negative territory still has a (small) nonzero gradient, so it can recover instead of dying permanently. It directly targets ReLU's single biggest failure mode without changing the cost or the positive-side behavior at all.
 
@@ -171,6 +179,8 @@ or through the cheaper tanh-based approximation used in most deep learning libra
 
 $$\text{GELU}(x) \approx 0.5x\left(1 + \tanh\left[\sqrt{2/\pi}\,\left(x + 0.044715\,x^3\right)\right]\right)$$
 
+![GELU function plot, showing a smooth curve that dips slightly negative before rising](activation-functions-assets/gelu.svg)
+
 The shape tracks ReLU's overall trend — near zero for very negative $x$, roughly linear for large positive $x$ — but everything around the origin is rounded off: there's a small dip slightly below zero for negative inputs (unlike ReLU's flat clamp) and a smooth curved onset instead of a kink. That smoothness (the function is infinitely differentiable) removes the exact-zero dead zone that causes dying neurons, while the probabilistic framing — "gate each input by how large it is, stochastically" — was designed to combine the regularizing feel of dropout with the shape of an activation function.
 
 **Worked example.** Take the same $x = 1.5$ used for sigmoid and tanh, using the tanh-based approximation:
@@ -190,6 +200,8 @@ Compare to $\text{ReLU}(1.5) = 1.5$ exactly — GELU pulls the output in slightl
 
 $$\text{SiLU}(x) = x \cdot \sigma(x) = \frac{x}{1 + e^{-x}}$$
 
+![SiLU function plot, showing a smooth curve nearly identical to GELU](activation-functions-assets/silu.svg)
+
 Nearly identical in shape to GELU — both dip slightly below zero just left of the origin, both curve smoothly into a near-linear rise on the right — which is no accident, since both are smoothed relatives of the same ReLU trend. SiLU is a touch cheaper to compute (one sigmoid vs. an erf/tanh approximation) and was discovered largely via automated search over candidate activation functions, then confirmed by hand — a rare case of a simple closed-form function beating hand-designed alternatives at scale.
 
 **Worked example.** Take the same $x = 1.5$ again, reusing $\sigma(1.5) = 0.8176$ from the sigmoid example:
@@ -207,9 +219,7 @@ Slightly below GELU's $1.3996$ at the same input — the two track each other cl
 
 Every function above is a single curve applied to a single number. The gated units used in modern LLM feed-forward blocks are a different construction entirely: instead of one linear projection passed through one activation, the input is projected *twice* by two independent weight matrices, one branch is passed through an activation to act as a gate, and the two branches are multiplied together elementwise before a final projection back down.
 
-```
-x → V x  (linear, "content")  ⊗  f(Wx)  (linear + activation, "gate")  →  W₂(·)  → output
-```
+![Gated Linear Unit architecture diagram: input splits into a gate branch f(xW) and a content branch xV, which are multiplied elementwise and passed through a final linear projection](activation-functions-assets/gated-unit.svg)
 
 This is a GLU — Gated Linear Unit — and the activation used for the gate $f$ is what names the variant. Swap in SiLU and you get **SwiGLU**; swap in GELU and you get **GeGLU**.
 
