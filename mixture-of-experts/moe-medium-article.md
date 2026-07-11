@@ -14,6 +14,18 @@ This article covers what MoE is, why it exists, what it costs you in return, wha
 
 ---
 
+## What You'll Learn
+
+By the end of this article, you should be able to:
+
+- Explain, in plain language, why a dense feed-forward network gets slower to run as it gets smarter — and why that's a structural problem, not just a scaling inconvenience.
+- Describe what a Mixture of Experts layer actually is: what a "router" does, what an "expert" is, and how the two work together to process a token.
+- Name the real trade-off MoE introduces — it doesn't make models cheaper for free, it shifts the bottleneck from compute to memory — and explain why that matters for serving these models.
+- Recognize which major LLMs today use MoE (DeepSeek, Llama 4, Mixtral, Qwen3, Grok, and others), and read active/total parameter counts (e.g. "37B active / 671B total") correctly.
+- Point to what's still unsolved: load balancing, expert specialization, and the emerging work on offloading and prefetching experts to close the memory gap.
+
+---
+
 ## 1. What Problem Does This Solve? (Shortcomings of Dense FFNs)
 
 **A story: the village doctor.**
