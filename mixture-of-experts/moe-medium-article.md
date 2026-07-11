@@ -193,6 +193,12 @@ It's easy to state MoE design choices as if they were obviously correct. They we
 
 *Source: Table 1, Dai et al., 2024. All models matched at 2.0B total / 0.3B activated parameters, 100B training tokens.*
 
+**How to read this table.** The setup holds everything constant except the architecture — same total parameters, same active parameters per token, same compute budget, same training data. That isolates architecture as the only variable, so any difference in the results is attributable to *how* the model routes tokens, not to it simply being bigger.
+
+- **Rows** are the evaluation metrics: **Pile (Loss)** measures how well the model predicts the next word on a general text corpus — *lower is better*. **HellaSwag, PIQA, ARC-challenge (Acc.)** are common-sense and reasoning multiple-choice tests scored as accuracy — *higher is better*. **TriviaQA (EM)** is "Exact Match" on a trivia QA benchmark — *higher is better*.
+- **Columns** are the five architectures compared: **Dense** (no MoE, the baseline), **Hash Layer** (tokens routed by a fixed hash, no learned router), **Switch** (top-1 learned routing), **GShard** (top-2 learned routing), and **DeepSeekMoE** (fine-grained experts + shared expert).
+- **The pattern to notice**: scanning left to right across any row, the numbers consistently improve toward DeepSeekMoE — that consistency across five unrelated benchmarks is what makes this evidence rather than a lucky result on one test.
+
 The more striking ablation is what happens when the shared expert is removed and its capacity handed to a routed expert instead, at identical compute cost: Pile loss jumps from **1.808 to 2.414** — a large regression for a change that keeps FLOPs constant. That's the paper's evidence for calling the shared expert "irreplaceable by routed experts," not just a stylistic addition.
 
 **Auxiliary-loss-free balancing isn't just simpler, it measurably helps.** Wang et al. (2024), the paper behind DeepSeek-V3's routing, ablates the auxiliary-loss-free (Loss-Free) strategy directly against traditional auxiliary-loss-controlled (Loss-Controlled) balancing, at matched scale, using **MaxVio** (maximum violation of perfect load balance — lower is better) as the load-balance metric:
@@ -206,7 +212,12 @@ The more striking ablation is what happens when the shared expert is removed and
 
 *Source: Table 2, Wang et al., 2024.*
 
-Loss-Free Balancing wins on both axes at both scales — better perplexity *and* an order-of-magnitude better load balance (0.04 vs. 0.5–0.7 MaxVio) — which is the concrete evidence behind the claim in Section 7 that auxiliary losses were fighting the training objective, not just supporting it.
+**How to read this table.** This one is testing two different fixes for the same problem — a router that dumps too many tokens onto its favorite experts. **Loss-Controlled** is the traditional fix: add an extra penalty term to the training loss that punishes imbalance. **Loss-Free** is DeepSeek-V3's fix: skip the penalty term entirely and instead adjust a per-expert bias directly based on how overloaded or idle it's been.
+
+- **Rows** pair up the two model sizes tested (1B and 3B parameters) with the two methods, so each size gets a direct head-to-head comparison.
+- **Validation Perplexity** measures how well the model predicts unseen text — *lower is better*. A perplexity of 9.5 roughly means the model is choosing between about 9-10 similarly likely next words on average; the lower that number, the sharper the model's predictions.
+- **MaxVio (global)** measures how *unevenly* tokens are spread across experts — 0 would mean every expert gets a perfectly equal share; higher numbers mean some experts are overloaded while others sit idle. *Lower is better.*
+- **The pattern to notice**: Loss-Free wins on *both* columns at *both* sizes — it's not a trade-off where you sacrifice model quality for better balance. The MaxVio gap is the headline: 0.04 vs. 0.72 and 0.04 vs. 0.52 is roughly an 18x and 13x tighter balance, while perplexity still comes out slightly ahead too.
 
 **Router stability isn't free — and z-loss is the fix.** ST-MoE (Zoph et al., 2022) ran a large-scale stability study on sparse models and found that a plain router (just top-k selection) is prone to training instability at scale. Their proposed fix, the router z-loss, is itself an ablation result: added on top of the standard load-balancing loss, it significantly improves training stability with no measurable quality cost. It's a useful example of an MoE-specific failure mode that wouldn't show up in a small-scale prototype.
 
