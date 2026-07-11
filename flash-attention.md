@@ -54,6 +54,10 @@ Why it matters in practice:
 - **Memory usage.** Standard attention needs $O(n^2)$ memory just to hold the score matrix (and its gradient, during backprop). Flash Attention needs $O(n)$ memory, because it never materializes the full matrix — it recomputes small pieces on the fly during the backward pass instead of storing them.
 - **Longer context lengths.** This is the big unlock. Because memory no longer scales quadratically with sequence length, models can be trained and run at context lengths (16K, 32K, 128K+ tokens) that would simply run out of GPU memory with standard attention. Long-context LLMs are, in large part, a Flash-Attention-shaped consequence.
 
+**Prefill vs. decode: two different bottlenecks.** Everything above describes *training* and *prefill* (processing a full prompt at once) — many query tokens against many keys, so the $n \times n$ score matrix is the problem. Autoregressive *decoding* (generating one token at a time) is a different regime: a single query token attends against a growing cache of all previous keys/values. There's no large score matrix to avoid — the bottleneck shifts to reading the entire KV cache from HBM for every single new token. This is why `flash-attn` ships a separate `flash_attn_with_kvcache` function: it's still about minimizing HBM traffic, just against a cache instead of a freshly-computed block.
+
+**Pairing with GQA/MQA.** Grouped-query attention (GQA) and multi-query attention (MQA) — used in Llama 3, Mistral, and Qwen — shrink the KV cache itself by sharing key/value heads across multiple query heads. This is a complementary optimization, not a competing one: GQA/MQA reduces *how much* KV data has to be read during decode, while Flash Attention reduces the *cost per byte* of reading it. Nearly every modern open-weight LLM ships with both simultaneously.
+
 ---
 
 ## 3. Different attention implementations actively used
@@ -111,13 +115,45 @@ After the last block, normalize: $O_{\text{final}} = O^{\text{new}} / \ell^{\tex
 
 The rescaling terms $e^{m^{\text{old}} - m^{\text{new}}}$ are what let the running sum and running output be corrected retroactively every time a new block reveals a larger max — this is the "online softmax" trick, and it's what makes the result *exact*, not approximate.
 
+**The tiling grid, visually.** Split $Q$ into row-blocks and $K$/$V$ into column-blocks; the kernel sweeps one $(Q_i, K_j)$ tile at a time, entirely inside SRAM:
+
+```
+                K_1     K_2     K_3     K_4
+              ┌───────┬───────┬───────┬───────┐
+        Q_1   │ visit │ visit │ visit │ visit │  → running (m, ℓ, O) updated 4x, then O_1 written to HBM once
+              ├───────┼───────┼───────┼───────┤
+        Q_2   │ visit │ visit │ visit │ visit │  → same, independently, for row-block 2
+              ├───────┼───────┼───────┼───────┤
+        Q_3   │ visit │ visit │ visit │ visit │
+              ├───────┼───────┼───────┼───────┤
+        Q_4   │ visit │ visit │ visit │ visit │
+              └───────┴───────┴───────┴───────┘
+
+Causal masking: tiles strictly above the diagonal are skipped entirely
+(not computed then masked) — a free speedup FA2 added on top of v1.
+```
+
+Each cell is a small matmul that fits in SRAM; only the four output row-blocks ($O_1$–$O_4$) ever get written back to HBM — never the 4×4 grid of raw scores.
+
+**Why this is provably optimal, not just empirically faster.** The FA1 paper doesn't just show speedups — it proves a lower bound. Standard attention needs $\Theta(nd + n^2)$ HBM accesses (dominated by the $n^2$ term for long sequences). Flash Attention needs $\Theta(n^2d^2/M)$ accesses, where $M$ is the SRAM size — and the paper shows no exact attention algorithm can do asymptotically better across all values of $M$. In other words, tiling to the SRAM budget isn't a heuristic that happens to help; it's close to the theoretical floor for how little data an exact attention computation can move through HBM.
+
 All of this — loading $Q_i, K_j, V_j$ blocks, computing $S^{(j)}$, updating $m, \ell, O$ — happens **inside SRAM**, for one $(Q_i, K_j)$ block pair at a time, fused into a single kernel. Only the final normalized output block gets written back to HBM. The full $n \times n$ matrix never exists in HBM.
 
 **Backward pass:** rather than storing $P$ (which would cost $O(n^2)$ memory), Flash Attention stores only $O$, $m$, and $\ell$ (each $O(n)$), and *recomputes* the needed blocks of $S$ and $P$ on the fly during backprop. This trades a modest amount of extra compute for a large reduction in memory — a good trade, since the operation is memory-bound anyway.
 
+**A worked example with real numbers.** Take one query row with two key/value blocks of size 2, unscaled scores $S^{(1)} = [1, 3]$ for block 1 and $S^{(2)} = [2, 5]$ for block 2 (values chosen small so the arithmetic is easy to follow by hand):
+
+*Block 1:* $m^{\text{new}} = \max(-\infty, 3) = 3$. $P^{(1)} = e^{[1,3]-3} = [e^{-2}, e^{0}] = [0.135,\ 1.0]$. $\ell^{\text{new}} = 0 + (0.135+1.0) = 1.135$. $O^{\text{new}} = P^{(1)}V_1$ (say $V_1 = [10, 20]$ elementwise-paired) $= 0.135(10) + 1.0(20) = 21.35$.
+
+*Block 2:* rowmax of $S^{(2)}$ is $5 > 3$, so $m^{\text{new}} = 5$. Rescale factor $e^{m^{\text{old}}-m^{\text{new}}} = e^{3-5} = e^{-2} = 0.135$. $P^{(2)} = e^{[2,5]-5} = [e^{-3}, e^{0}] = [0.050,\ 1.0]$. $\ell^{\text{new}} = 0.135(1.135) + (0.050+1.0) = 0.153 + 1.050 = 1.203$. With $V_2 = [30, 40]$: $O^{\text{new}} = 0.135(21.35) + (0.050(30) + 1.0(40)) = 2.88 + 41.50 = 44.38$.
+
+*Final:* $O_{\text{final}} = 44.38 / 1.203 \approx 36.9$.
+
+Check against computing softmax over all four scores at once — $[1,3,2,5]$, max $=5$: $P = e^{[1,3,2,5]-5} = [0.018,\ 0.135,\ 0.050,\ 1.0]$, $\sum P = 1.203$, weighted sum against $[10,20,30,40] = 0.018(10)+0.135(20)+0.050(30)+1.0(40) = 0.18+2.70+1.50+40.0 = 44.38$, divided by $1.203 \approx 36.9$. Same answer — the block-by-block version with rescaling reproduces the single-pass softmax exactly, which is the entire point.
+
 **What changes across v1 → v2 → v3** is not this core math — it's engineering around it:
 
-- **v2**: parallelizes across the sequence dimension in addition to batch/heads (better GPU utilization when batch size or head count is small), reduces the number of non-matmul operations (rescaling, bookkeeping), and improves work partitioning between GPU thread blocks.
+- **v2**: parallelizes across the sequence dimension in addition to batch/heads (better GPU utilization when batch size or head count is small), reduces the number of non-matmul operations (rescaling, bookkeeping), and reduces communication between warps *within* a thread block so less time is spent on shared-memory reads/writes relative to actual compute.
 - **v3**: targets Hopper (H100) specifically — overlaps HBM-to-SRAM data movement with compute using asynchronous copy instructions (so the GPU is never just waiting), adds an FP8 low-precision path through the tensor cores for further throughput, and uses warp specialization (dedicating different groups of GPU threads to loading vs. computing vs. softmax bookkeeping, running concurrently rather than sequentially).
 
 ### Sliding Window Attention (layered on top)
@@ -199,6 +235,7 @@ Both calls compute identical attention outputs to `naive_attention`; the differe
 - ✅ $O(n)$ memory instead of $O(n^2)$; substantial wall-clock speedup.
 - ❌ Requires the custom CUDA kernel (via `flash-attn` package); not pure PyTorch, so portability and installation friction exist.
 - ❌ Limited GPU utilization when batch size × heads is small, since parallelization is only across batch/heads.
+- ❌ Only supports fp16/bf16 inputs, not fp32 — models running in full precision need a cast before calling in.
 
 **Flash Attention v2**
 - ✅ Better parallelization (adds sequence-length parallelism) and less bookkeeping overhead than v1 — roughly 2x faster.
