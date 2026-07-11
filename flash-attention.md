@@ -7,6 +7,8 @@
 
 ---
 
+You double your training sequence length from 4K to 8K tokens — same GPU, same model, same batch size — and training crashes with a CUDA out-of-memory error. Not 2x the memory pressure you braced for. Closer to 4x. That's not a leak or a misconfiguration; it's the $n \times n$ attention score matrix growing quadratically while everything else about your job barely changed. Flash Attention exists because of exactly that moment.
+
 Flash Attention is one of the few systems-level ideas in deep learning that changed what was practically buildable — not by inventing new math, but by refusing to waste memory bandwidth on old math. This article works through what the standard attention bottleneck actually is, why it's an I/O problem rather than a compute problem, how tiling and online softmax solve it exactly (not approximately), and where Flash Attention v1 through v3 and Sliding Window Attention sit in the models you use today.
 
 ---
@@ -22,7 +24,8 @@ Flash Attention is one of the few systems-level ideas in deep learning that chan
 7. [Pros and cons](#7-pros-and-cons)
 8. [Summary](#8-summary)
 9. [Key takeaways](#9-key-takeaways)
-10. [Further reading](#10-further-reading)
+10. [Appendix: the details behind the claims](#10-appendix-the-details-behind-the-claims)
+11. [Further reading](#11-further-reading)
 
 ---
 
@@ -128,43 +131,11 @@ After the last block, normalize: $O_{\text{final}} = O^{\text{new}} / \ell^{\tex
 
 The rescaling terms $e^{m^{\text{old}} - m^{\text{new}}}$ are what let the running sum and running output be corrected retroactively every time a new block reveals a larger max — this is the "online softmax" trick, and it's what makes the result *exact*, not approximate.
 
-**The tiling grid, visually.** Split $Q$ into row-blocks and $K$/$V$ into column-blocks; the kernel sweeps one $(Q_i, K_j)$ tile at a time, entirely inside SRAM:
-
-```
-                K_1     K_2     K_3     K_4
-              ┌───────┬───────┬───────┬───────┐
-        Q_1   │ visit │ visit │ visit │ visit │  → running (m, ℓ, O) updated 4x, then O_1 written to HBM once
-              ├───────┼───────┼───────┼───────┤
-        Q_2   │ visit │ visit │ visit │ visit │  → same, independently, for row-block 2
-              ├───────┼───────┼───────┼───────┤
-        Q_3   │ visit │ visit │ visit │ visit │
-              ├───────┼───────┼───────┼───────┤
-        Q_4   │ visit │ visit │ visit │ visit │
-              └───────┴───────┴───────┴───────┘
-
-Causal masking: tiles strictly above the diagonal are skipped entirely
-(not computed then masked) — a free speedup FA2 added on top of v1.
-```
-
-Each cell is a small matmul that fits in SRAM; only the four output row-blocks ($O_1$–$O_4$) ever get written back to HBM — never the 4×4 grid of raw scores. (Tile size itself — how many tokens fit in one block — is chosen by the kernel at compile/launch time based on the GPU's SRAM capacity and the head dimension $d$; it isn't something you set by hand when calling `flash_attn_func` or SDPA.)
-
-**Why this is provably optimal, not just empirically faster.** The FA1 paper doesn't just show speedups — it proves a lower bound. Standard attention needs $\Theta(nd + n^2)$ HBM accesses (dominated by the $n^2$ term for long sequences). Flash Attention needs $\Theta(n^2d^2/M)$ accesses, where $M$ is the SRAM size — and the paper shows no exact attention algorithm can do asymptotically better across all values of $M$. In other words, tiling to the SRAM budget isn't a heuristic that happens to help; it's close to the theoretical floor for how little data an exact attention computation can move through HBM.
-
 All of this — loading $Q_i, K_j, V_j$ blocks, computing $S^{(j)}$, updating $m, \ell, O$ — happens **inside SRAM**, for one $(Q_i, K_j)$ block pair at a time, fused into a single kernel. Only the final normalized output block gets written back to HBM. The full $n \times n$ matrix never exists in HBM.
 
-**Backward pass:** rather than storing $P$ (which would cost $O(n^2)$ memory), Flash Attention stores only $O$, $m$, and $\ell$ (each $O(n)$), and *recomputes* the needed blocks of $S$ and $P$ on the fly during backprop. This trades a modest amount of extra compute for a large reduction in memory — a good trade, since the operation is memory-bound anyway.
+**Backward pass:** rather than storing $P$ (which would cost $O(n^2)$ memory), Flash Attention stores only $O$, $m$, and $\ell$ (each $O(n)$), and *recomputes* the needed blocks of $S$ and $P$ on the fly during backprop — a modest increase in FLOPs in exchange for a large reduction in memory, a good trade since the operation is memory-bound, not compute-bound.
 
-**How much extra compute, roughly.** A standard backward pass reuses the $P$ matrix already sitting in memory from the forward pass, so its cost is on the order of the usual "backward is ~2x forward" rule of thumb — call forward $1\times$ and backward $2\times$, for $3\times$ total. Flash Attention's backward pass has to redo the $QK^T$-and-softmax work to reconstruct $P$ before it can use it, adding roughly one extra forward-sized pass on top of that same $2\times$ backward cost — around $1\times + 2\times + 1\times = 4\times$ total, versus $3\times$ for standard attention. That's roughly 30% more total FLOPs across the forward and backward pass combined. It's a deliberate trade: extra arithmetic is nearly free on a GPU that's otherwise waiting on HBM, so paying ~30% more compute to avoid ever storing an $O(n^2)$ matrix is a clear net win once $n$ is large.
-
-**A worked example with real numbers.** Take one query row with two key/value blocks of size 2, unscaled scores $S^{(1)} = [1, 3]$ for block 1 and $S^{(2)} = [2, 5]$ for block 2 (values chosen small so the arithmetic is easy to follow by hand):
-
-*Block 1:* $m^{\text{new}} = \max(-\infty, 3) = 3$. $P^{(1)} = e^{[1,3]-3} = [e^{-2}, e^{0}] = [0.135,\ 1.0]$. $\ell^{\text{new}} = 0 + (0.135+1.0) = 1.135$. $O^{\text{new}} = P^{(1)}V_1$ (say $V_1 = [10, 20]$ elementwise-paired) $= 0.135(10) + 1.0(20) = 21.35$.
-
-*Block 2:* rowmax of $S^{(2)}$ is $5 > 3$, so $m^{\text{new}} = 5$. Rescale factor $e^{m^{\text{old}}-m^{\text{new}}} = e^{3-5} = e^{-2} = 0.135$. $P^{(2)} = e^{[2,5]-5} = [e^{-3}, e^{0}] = [0.050,\ 1.0]$. $\ell^{\text{new}} = 0.135(1.135) + (0.050+1.0) = 0.153 + 1.050 = 1.203$. With $V_2 = [30, 40]$: $O^{\text{new}} = 0.135(21.35) + (0.050(30) + 1.0(40)) = 2.88 + 41.50 = 44.38$.
-
-*Final:* $O_{\text{final}} = 44.38 / 1.203 \approx 36.9$.
-
-Check against computing softmax over all four scores at once — $[1,3,2,5]$, max $=5$: $P = e^{[1,3,2,5]-5} = [0.018,\ 0.135,\ 0.050,\ 1.0]$, $\sum P = 1.203$, weighted sum against $[10,20,30,40] = 0.018(10)+0.135(20)+0.050(30)+1.0(40) = 0.18+2.70+1.50+40.0 = 44.38$, divided by $1.203 \approx 36.9$. Same answer — the block-by-block version with rescaling reproduces the single-pass softmax exactly, which is the entire point.
+*(Want to see the tiling grid drawn out, the HBM-access lower-bound proof, the exact FLOPs overhead this recomputation costs, and a fully worked numeric example that checks the math by hand? They're in the [Appendix](#10-appendix-the-details-behind-the-claims) — split out so the core algorithm above stays readable in one pass.)*
 
 **What changes across v1 → v2 → v3** is not this core math — it's engineering around it:
 
@@ -309,7 +280,47 @@ model = AutoModelForCausalLM.from_pretrained(
 
 ---
 
-## 10. Further reading
+## 10. Appendix: the details behind the claims
+
+This section exists for readers who want the receipts behind section 4's claims — skippable on a first read.
+
+**The tiling grid, visually.** Split $Q$ into row-blocks and $K$/$V$ into column-blocks; the kernel sweeps one $(Q_i, K_j)$ tile at a time, entirely inside SRAM:
+
+```
+                K_1     K_2     K_3     K_4
+              ┌───────┬───────┬───────┬───────┐
+        Q_1   │ visit │ visit │ visit │ visit │  → running (m, ℓ, O) updated 4x, then O_1 written to HBM once
+              ├───────┼───────┼───────┼───────┤
+        Q_2   │ visit │ visit │ visit │ visit │  → same, independently, for row-block 2
+              ├───────┼───────┼───────┼───────┤
+        Q_3   │ visit │ visit │ visit │ visit │
+              ├───────┼───────┼───────┼───────┤
+        Q_4   │ visit │ visit │ visit │ visit │
+              └───────┴───────┴───────┴───────┘
+
+Causal masking: tiles strictly above the diagonal are skipped entirely
+(not computed then masked) — a free speedup FA2 added on top of v1.
+```
+
+Each cell is a small matmul that fits in SRAM; only the four output row-blocks ($O_1$–$O_4$) ever get written back to HBM — never the 4×4 grid of raw scores. Tile size itself — how many tokens fit in one block — is chosen by the kernel at compile/launch time based on the GPU's SRAM capacity and the head dimension $d$; it isn't something you set by hand when calling `flash_attn_func` or SDPA.
+
+**Why this is provably optimal, not just empirically faster.** The FA1 paper doesn't just show speedups — it proves a lower bound. Standard attention needs $\Theta(nd + n^2)$ HBM accesses (dominated by the $n^2$ term for long sequences). Flash Attention needs $\Theta(n^2d^2/M)$ accesses, where $M$ is the SRAM size — and the paper shows no exact attention algorithm can do asymptotically better across all values of $M$. In other words, tiling to the SRAM budget isn't a heuristic that happens to help; it's close to the theoretical floor for how little data an exact attention computation can move through HBM.
+
+**How much extra compute the backward pass costs, roughly.** A standard backward pass reuses the $P$ matrix already sitting in memory from the forward pass, so its cost is on the order of the usual "backward is ~2x forward" rule of thumb — call forward $1\times$ and backward $2\times$, for $3\times$ total. Flash Attention's backward pass has to redo the $QK^T$-and-softmax work to reconstruct $P$ before it can use it, adding roughly one extra forward-sized pass on top of that same $2\times$ backward cost — around $1\times + 2\times + 1\times = 4\times$ total, versus $3\times$ for standard attention. That's roughly 30% more total FLOPs across the forward and backward pass combined — a derived estimate, not a quoted benchmark figure. It's a deliberate trade: extra arithmetic is nearly free on a GPU that's otherwise waiting on HBM, so paying ~30% more compute to avoid ever storing an $O(n^2)$ matrix is a clear net win once $n$ is large.
+
+**A worked example with real numbers.** Take one query row with two key/value blocks of size 2, unscaled scores $S^{(1)} = [1, 3]$ for block 1 and $S^{(2)} = [2, 5]$ for block 2 (values chosen small so the arithmetic is easy to follow by hand):
+
+*Block 1:* $m^{\text{new}} = \max(-\infty, 3) = 3$. $P^{(1)} = e^{[1,3]-3} = [e^{-2}, e^{0}] = [0.135,\ 1.0]$. $\ell^{\text{new}} = 0 + (0.135+1.0) = 1.135$. $O^{\text{new}} = P^{(1)}V_1$ (say $V_1 = [10, 20]$ elementwise-paired) $= 0.135(10) + 1.0(20) = 21.35$.
+
+*Block 2:* rowmax of $S^{(2)}$ is $5 > 3$, so $m^{\text{new}} = 5$. Rescale factor $e^{m^{\text{old}}-m^{\text{new}}} = e^{3-5} = e^{-2} = 0.135$. $P^{(2)} = e^{[2,5]-5} = [e^{-3}, e^{0}] = [0.050,\ 1.0]$. $\ell^{\text{new}} = 0.135(1.135) + (0.050+1.0) = 0.153 + 1.050 = 1.203$. With $V_2 = [30, 40]$: $O^{\text{new}} = 0.135(21.35) + (0.050(30) + 1.0(40)) = 2.88 + 41.50 = 44.38$.
+
+*Final:* $O_{\text{final}} = 44.38 / 1.203 \approx 36.9$.
+
+Check against computing softmax over all four scores at once — $[1,3,2,5]$, max $=5$: $P = e^{[1,3,2,5]-5} = [0.018,\ 0.135,\ 0.050,\ 1.0]$, $\sum P = 1.203$, weighted sum against $[10,20,30,40] = 0.018(10)+0.135(20)+0.050(30)+1.0(40) = 0.18+2.70+1.50+40.0 = 44.38$, divided by $1.203 \approx 36.9$. Same answer — the block-by-block version with rescaling reproduces the single-pass softmax exactly, which is the entire point.
+
+---
+
+## 11. Further reading
 
 - Dao, T., Fu, D., Ermon, S., Rudra, A., & Ré, C. (2022). *FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness.* — the original paper; introduces tiling, online softmax, and the HBM-access lower bound.
 - Dao, T. (2023). *FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning.*

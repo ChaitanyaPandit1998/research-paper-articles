@@ -9,18 +9,23 @@
 1. [What is it?](#what-is-it)
 2. [Use case](#use-case)
 3. [Different RL post-training approaches actively used](#different-rl-post-training-approaches-actively-used)
-4. [Memory footprint compared](#memory-footprint-compared)
-5. [Glossary of terms](#glossary-of-terms)
-6. [Formula/objective for each](#formulaobjective-for-each)
-7. [Line-by-line: what each variable means](#line-by-line-what-each-variable-means)
-8. [Worked example: GRPO by the numbers](#worked-example-grpo-by-the-numbers)
-9. [Explanation for each](#explanation-for-each)
-10. [GRPO in practice: pitfalls & follow-ups](#grpo-in-practice-pitfalls--follow-ups)
-11. [Python example](#python-example)
-12. [Hyperparameter cheat sheet](#hyperparameter-cheat-sheet)
-13. [Pros and cons](#pros-and-cons)
-14. [Summary](#summary)
-15. [Key takeaways](#key-takeaways)
+4. [Which one should I use?](#which-one-should-i-use)
+5. [Memory footprint compared](#memory-footprint-compared)
+6. [Architecture at a glance](#architecture-at-a-glance)
+7. [Glossary of terms](#glossary-of-terms)
+8. [Formula/objective for each](#formulaobjective-for-each)
+9. [Line-by-line: what each variable means](#line-by-line-what-each-variable-means)
+10. [Common misconceptions](#common-misconceptions)
+11. [Worked example: GRPO by the numbers](#worked-example-grpo-by-the-numbers)
+12. [Explanation for each](#explanation-for-each)
+13. [GRPO in practice: pitfalls & follow-ups](#grpo-in-practice-pitfalls--follow-ups)
+14. [How to tell it's working](#how-to-tell-its-working)
+15. [Python example](#python-example)
+16. [Hyperparameter cheat sheet](#hyperparameter-cheat-sheet)
+17. [Pros and cons](#pros-and-cons)
+18. [Summary](#summary)
+19. [Key takeaways](#key-takeaways)
+20. [References & further reading](#references--further-reading)
 
 ---
 
@@ -72,6 +77,19 @@ The lineage roughly goes: **PPO-based RLHF** established the paradigm of "train 
 
 ---
 
+## Which one should I use?
+
+What determines the right choice is usually the shape of the data and signal you already have, not a preference for one algorithm over another:
+
+| What you have | Use | Why |
+|---|---|---|
+| Pairwise human preferences (A vs. B judgments), no verifiable scoring | **DPO** | Directly consumes preference pairs; cheapest and simplest path, trains offline like SFT |
+| A verifiable or rule-based reward (tests pass, answer correct) and budget for extra inference compute | **GRPO** | Online exploration finds better responses than any fixed dataset; no critic to train |
+| A learned reward model, need the most battle-tested general-purpose recipe, and can afford a critic model | **PPO** | Most extensively studied and tuned in production; handles any scalar reward shape |
+| Both preference data and a scalar/verifiable reward | **DPO then GRPO** | Common recipe: cheap DPO pass for broad alignment, followed by targeted GRPO for reasoning/task performance |
+
+---
+
 ## Memory footprint compared
 
 The clearest way to see why labs moved off PPO is to count how many full model copies have to sit in GPU memory at once during training.
@@ -83,6 +101,32 @@ The clearest way to see why labs moved off PPO is to count how many full model c
 | **GRPO** | Policy | Reference + Reward (model or rule-based function) | 2–3 | Reward can be a lightweight verifier, not a full network — often cheaper than PPO's reward model too |
 
 For a 7B-parameter model, PPO's critic alone adds roughly 14GB+ of weights (fp16), plus its own optimizer states (Adam roughly doubles that again) — on top of the policy, reference, and reward model already in memory. That extra model is the single biggest line item PPO carries that GRPO and DPO don't.
+
+---
+
+## Architecture at a glance
+
+What actually runs each training step, per method. `[trainable]` boxes have gradients flowing through them; `[frozen]` boxes are inference-only.
+
+```
+PPO                              DPO                              GRPO
+────────────────────             ────────────────────             ────────────────────
+[frozen]    Prompt x              [frozen] Dataset (x, y_w, y_l)   [frozen]    Prompt x
+    ↓                             pairs — offline, no sampling         ↓
+[trainable] Policy π_θ                ↓                           [trainable] Policy π_θ
+  — 1 rollout                    [trainable] Policy π_θ              — G rollouts
+    ↓                              scores y_w, y_l                     ↓
+[frozen]    Reward model → r     [frozen]    Reference π_ref       [frozen]    Reward fn/model
+[trainable] Critic → V(s), A       scores y_w, y_l                  → r_1 … r_G
+[frozen]    Reference π_ref          ↓                             [no network] group mean/std
+  → KL                           [trainable] Update:                 → A_1 … A_G
+    ↓                              closed-form preference loss     [frozen]    Reference π_ref → KL
+[trainable] Update:                                                    ↓
+  clipped PPO objective                                            [trainable] Update:
+                                                                      clipped GRPO objective
+```
+
+The visual tell: PPO is the only column with two trainable boxes (policy *and* critic). GRPO keeps PPO's online-sampling shape but replaces the critic with a plain statistic — no gradients flow through the "group mean/std" step, it's arithmetic, not a network. DPO skips the sampling loop entirely and works straight from a static dataset.
 
 ---
 
@@ -240,6 +284,16 @@ This isn't the textbook KL formula — it's a specific low-variance estimator (f
 
 ---
 
+## Common misconceptions
+
+- **"GRPO is just PPO with more samples."** No — GRPO doesn't add rollouts to PPO, it removes the critic network entirely and replaces value estimation with empirical group statistics (mean/std of sampled rewards). That's an architectural change, not a hyperparameter tweak.
+- **"DPO has no KL constraint since there's no KL term in the loss."** There is no explicit term, but the constraint is still there implicitly — DPO's loss is derived as the closed-form solution to the same KL-constrained reward maximization problem PPO solves. The reference model's log-probabilities inside the loss are what encode it.
+- **"Reward model and reward function are the same thing."** Not quite. A reward model is a learned network (often a fine-tuned copy of the policy) trained to predict human preference scores. A reward function is frequently a simple deterministic program — a regex match, a unit-test runner, a math answer checker. GRPO can use either; PPO's classic RLHF form specifically expects a learned reward model.
+- **"A bigger GRPO group size G always helps."** Diminishing returns apply. Beyond a point, the marginal reduction in advantage variance doesn't offset the added inference cost — and for a well-separated reward distribution (e.g., binary correctness), a large G mostly means paying for redundant samples.
+- **"KL penalty and clipping do the same job."** They don't — clipping bounds how far a single gradient step can move the policy in one update; the KL penalty bounds how far the policy drifts from the reference cumulatively, across the whole training run. Most recipes use both, except DPO, which folds the KL constraint in analytically.
+
+---
+
 ## Worked example: GRPO by the numbers
 
 Prompt: *"What is 17 × 24?"* — a case where correctness is programmatically checkable, so the reward function is just an answer-checker. Sample `G = 4` responses from the current policy:
@@ -293,6 +347,22 @@ GRPO's simplicity comes with sharp edges that later work has tried to file down:
 - **Length bias from the per-response normalization.** The `1/|y_i|` term averages the loss over each response's token count. Combined with std-normalized advantages, this interacts with response length in ways that can implicitly reward being longer or shorter independent of actual quality. Follow-up work — DAPO (ByteDance) and Dr. GRPO (Sea AI Lab) — identified this and proposed removing or adjusting the length normalization.
 - **Degenerate groups.** As shown in the worked example above, when every sampled response in a group gets the same reward, the advantage signal collapses to ~0 and that prompt's rollouts are wasted. This gets worse for training sets skewed toward trivially easy or hopelessly hard prompts — difficulty calibration/filtering of the prompt set is a real practical lever.
 - **Reward hacking is still possible without a critic.** Removing the critic doesn't remove the risk of an exploitable reward function. A reward that only checks "does a number matching the answer appear anywhere in the output" can be gamed by a model that pads its response with several candidate numbers rather than genuinely solving the problem.
+
+---
+
+## How to tell it's working
+
+Signals worth logging and watching during a real GRPO run — the training reward alone is not enough to trust:
+
+| Signal | What healthy looks like | What a problem looks like |
+|---|---|---|
+| Reward curve | Trends upward over training steps | Flat or noisy with no upward trend — check learning rate, reward function, group size |
+| KL divergence | Small, stable, or slowly growing | Spikes or grows unbounded — the policy is drifting too far from the reference, often a precursor to reward hacking or degenerate output |
+| Held-out task accuracy | Improves in step with the reward curve | Training reward climbs while held-out accuracy stalls or drops — classic sign of reward hacking rather than genuine improvement |
+| Degenerate-group rate | Low — most prompts produce a mix of rewards within their group | High rate of all-same-reward groups — training-prompt difficulty distribution needs adjusting (see pitfalls above) |
+| Mean response length | Stable or changes for a legible reason | Creeping up or down over training with no quality justification — a length-bias symptom (see pitfalls above) |
+
+The single most important habit: never trust the training reward curve in isolation. It measures what the reward function measures, not what you actually care about — track a held-out, ideally human- or verifier-checked metric alongside it.
 
 ---
 
@@ -413,3 +483,17 @@ Rough starting ranges seen in GRPO recipes (DeepSeek-Math/R1-style, TRL, Unsloth
 - **GRPO's group-relative advantage collapses to zero when all sampled responses get the same reward.** This makes prompt/task difficulty calibration and group size important practical knobs — too-easy or too-hard prompts waste rollouts.
 - **DPO and GRPO solve different problems, not competing versions of the same one.** DPO is the right tool when you have (or can easily collect) pairwise preferences and want a cheap offline method; GRPO is the right tool when you have a scalar/verifiable reward and want online exploration.
 - **The RL-post-training landscape is converging on "critic-free" methods** for good reason: at LLM scale, the memory and stability cost of a full second critic model is often the single biggest obstacle to running RL fine-tuning at all — which is why both DPO and GRPO, despite being very different algorithms, share the design goal of eliminating it.
+
+---
+
+## References & further reading
+
+- Schulman et al., 2017 — *Proximal Policy Optimization Algorithms* (introduces PPO)
+- Schulman et al., 2015 — *High-Dimensional Continuous Control Using Generalized Advantage Estimation* (GAE, used for PPO's advantage estimates)
+- Ouyang et al., 2022 — *Training Language Models to Follow Instructions with Human Feedback* (OpenAI, InstructGPT — PPO-based RLHF for LLMs)
+- Rafailov et al., 2023 — *Direct Preference Optimization: Your Language Model is Secretly a Reward Model* (introduces DPO)
+- Shao et al., 2024 — *DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models* (introduces GRPO)
+- DeepSeek-AI, 2025 — *DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning* (GRPO applied at scale for reasoning)
+- ByteDance Seed team, 2025 — *DAPO: An Open-Source LLM Reinforcement Learning System at Scale* (addresses GRPO's length-normalization bias)
+- Sea AI Lab, 2025 — research on GRPO bias correction, commonly referred to as *Dr. GRPO*
+- Qwen team, 2025 — *Group Sequence Policy Optimization (GSPO)* (sequence-level alternative to GRPO's token-level ratios)
