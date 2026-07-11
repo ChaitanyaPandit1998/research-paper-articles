@@ -259,6 +259,21 @@ Nearly the same result as SwiGLU's $[0, -3.5232]$ — the first dimension is gat
 - **Pros:** same expressiveness gains as SwiGLU over non-gated FFNs; GELU's smoothness carried into the gate.
 - **Cons:** same extra-parameter, extra-multiply cost as SwiGLU; no consistent empirical edge over SwiGLU — largely an architectural choice.
 
+### Use cases at a glance
+
+*Condensed from the "Used in" lines above.*
+
+| Function | Primary use case | Example models / architectures |
+|---|---|---|
+| Sigmoid | Output-layer gate for binary classification; internal gates in recurrent cells | LSTM / GRU gates |
+| Tanh | Hidden-state and cell-state activation inside recurrent cells | LSTM, GRU |
+| ReLU | Default hidden-layer activation for CNNs and general feed-forward nets | Most 2010s CNNs (ResNet, VGG, etc.) |
+| Leaky ReLU | Hidden-layer activation where dying units are a known risk | GANs, some CNN variants |
+| GELU | Transformer FFN activation, first wave | GPT-2, BERT |
+| SiLU / Swish | Gate activation inside gated transformer FFNs | Gate function used in SwiGLU (Llama, Mistral, Qwen) |
+| SwiGLU | Transformer FFN activation, current generation | Llama (all versions), Mistral, Qwen, PaLM |
+| GeGLU | Transformer FFN activation, alternate gate | Gemma, T5 (later variants) |
+
 ### Pros and cons at a glance
 
 *Condensed from the bullet lists above, for quick side-by-side scanning.*
