@@ -13,11 +13,39 @@ This article covers what MoE is, why it exists, what it looks like inside a mode
 
 ---
 
-## 1. What Is Mixture of Experts?
+## 1. What Problem Does This Solve? (Shortcomings of Dense FFNs)
 
-Picture a hospital. When a patient walks in, you don't send them to every doctor in the building — a general practitioner looks at the case and refers them to the right specialist: a cardiologist, a dermatologist, whoever fits. The hospital as a whole knows a huge amount, but any single patient only interacts with one or two of its doctors.
+**A story: the village doctor.**
 
-MoE applies this idea to a neural network. In a normal ("dense") transformer, every token passes through one feed-forward network (FFN), and every parameter in that FFN does some work on every token. In an MoE layer, that single FFN is replaced by:
+Once there was a small village with one doctor. When the village was small, this worked fine — the doctor learned everything there was to know about the villagers' health, and one person could hold it all in their head. Every patient who walked in, from a child with a cough to an elder with a broken bone, got seen by the same doctor, and the doctor handled it.
+
+The village grew. And grew. Soon the doctor wasn't just treating coughs and broken bones — she had to keep up with cardiology, dermatology, oncology, pediatrics, and a dozen other fields, because the town council's answer to "the village needs to handle more kinds of illness" was always the same: "make the doctor learn more."
+
+So she studied harder. Her knowledge became vast — genuinely, she now knew more medicine than almost anyone alive. But something strange happened at the clinic. Every single patient, no matter how simple their complaint, now had to wait while she mentally sorted through her *entire* accumulated knowledge — heart conditions, skin conditions, childhood illnesses, all of it — just to answer "you have a common cold, here's some rest and fluids." A five-minute checkup that used to take five minutes now took much longer, because there was simply more in her head to sift through before she could respond, for every patient, every time.
+
+Worse, her knowledge was becoming a blur. She was so busy being *everything to everyone* that she was never able to go deep on any one thing the way a dedicated specialist could. A true cardiologist, seeing only heart patients all day, would have sharper, faster, more specialized instincts. But the village had one doctor, one brain, one shared set of knowledge — and every patient, useful or not, paid the cost of all of it.
+
+The town council had, without meaning to, built a system where **growing what the clinic knew and growing how long every visit took were the same lever.** There was no way to add more medical knowledge without every single patient — even the ones with a common cold — waiting longer for it.
+
+This is exactly the situation a dense feed-forward network (FFN) is in.
+
+**Translating the story back to the model.** In a standard ("dense") transformer, every token that flows through a layer is processed by the **same** feed-forward network — the same weights, every time, for every token, regardless of whether the token is "the," "photosynthesis," or a line of Python. Just like the village doctor, that single network has to hold everything it has ever learned — grammar, code syntax, chemistry, poetry — inside one shared set of weights, and every token pays the full cost of activating all of it, whether it needed most of that knowledge or not. This creates three concrete problems:
+
+**1. Compute scales linearly with parameters.** If you want a dense model to know more, you make the FFN bigger. But because *every* token uses the *entire* FFN, doubling the parameters roughly doubles the compute cost of every forward pass — exactly like every patient's visit getting slower as the doctor's total knowledge grew.
+
+**2. One-size-fits-all weights.** A dense FFN can't easily dedicate a chunk of itself to "handles chemistry vocabulary" and a different chunk to "handles Python syntax," because there's no mechanism to selectively activate different parts of the network for different inputs — the doctor can't just switch off her oncology knowledge while looking at a common cold.
+
+**3. Diminishing returns from raw scale.** Beyond a certain point, simply making a dense FFN bigger yields smaller and smaller quality improvements per unit of added compute — you're paying full price for capacity that any individual token barely uses, the same way the village pays for the doctor's cardiology expertise on every single visit, cough or not.
+
+What the village actually needed, and what a dense FFN actually needs, is a way to grow how much the *system* knows without making every single visit slower — a general practitioner who refers patients to the right specialist instead of trying to be all specialists at once. That's exactly what Mixture of Experts provides, and it's the subject of the next section.
+
+---
+
+## 2. What Is Mixture of Experts?
+
+Picture a hospital instead of a lone village doctor. When a patient walks in, you don't send them to every doctor in the building — a general practitioner looks at the case and refers them to the right specialist: a cardiologist, a dermatologist, whoever fits. The hospital as a whole knows a huge amount, but any single patient only interacts with one or two of its doctors.
+
+MoE applies this idea to a neural network. In a normal (dense) transformer, every token passes through one feed-forward network (FFN), and every parameter in that FFN does some work on every token. In an MoE layer, that single FFN is replaced by:
 
 - A set of **experts** — many smaller FFNs (could be 8, could be 256), each structurally identical but with its own separately trained weights.
 - A **router** (sometimes called a gate) — a small learned network that looks at each token and decides which expert(s) should handle it.
@@ -30,7 +58,7 @@ The result: the model's **total parameter count** can be enormous (all the exper
 
 ---
 
-## 2. Why Would You Want This? (Use Cases)
+## 3. Why Would You Want This? (Use Cases)
 
 **Scaling knowledge without scaling cost.** The main reason labs adopt MoE is simple: you can grow a model's capacity (how much it can "know" or represent) without a proportional growth in the cost of running it. This is why frontier-scale models today routinely have total parameter counts in the hundreds of billions to low trillions, while only activating tens of billions per token — something that would be computationally unaffordable in a dense model of the same total size.
 
@@ -39,24 +67,6 @@ The result: the model's **total parameter count** can be enormous (all the exper
 **Cheaper training and serving at a given quality bar.** For a fixed compute budget, MoE models tend to reach a given quality level faster than dense models of equivalent active size, because the extra (inactive-per-token) parameters still contribute useful capacity during training even though they're cheap to run at inference.
 
 **Multi-task and multi-modal systems.** Because routing can be learned per token (or even per modality), MoE is a natural fit for models that need to handle text, code, and other modalities without one shared block being a bottleneck.
-
----
-
-## 3. What Problem Does This Solve? (Shortcomings of Dense FFNs)
-
-To see why MoE exists, it helps to look at what it's replacing.
-
-In a standard ("dense") transformer, every token that flows through a layer is processed by the **same** feed-forward network — the same weights, every time, for every token, regardless of whether the token is "the," "photosynthesis," or a line of Python. This has real costs:
-
-**1. Compute scales linearly with parameters.** If you want a dense model to know more, you make the FFN bigger. But because *every* token uses the *entire* FFN, doubling the parameters roughly doubles the compute cost of every forward pass. There's no way to add capacity without also paying for it on every single token, useful or not.
-
-**2. One-size-fits-all weights.** A dense FFN has to represent everything it has learned — grammar, code syntax, chemistry, poetry — inside one shared set of weights that treats every token the same way. It can't easily dedicate a chunk of itself to "handles chemistry vocabulary" and a different chunk to "handles Python syntax," because there is no mechanism to selectively activate different parts of the network for different inputs.
-
-**3. Diminishing returns from raw scale.** Beyond a certain point, simply making a dense FFN bigger yields smaller and smaller quality improvements per unit of added compute — you are paying full price for capacity that any individual token barely uses.
-
-MoE directly targets all three: it lets total capacity grow (fixing #2 by giving specialization somewhere to live) largely independent of per-token compute (fixing #1), and it lets you keep adding useful capacity — more experts — without every added expert taxing every token (fixing #3).
-
-The catch, which is most of what MoE *research* is about, is that this only works if the router does its job well: sending tokens to the experts best suited for them, and spreading load evenly enough that experts don't sit idle or get overwhelmed.
 
 ---
 
