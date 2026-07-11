@@ -8,7 +8,7 @@
 
 ---
 
-Large language models have a simple problem: the more you want them to know, the more parameters you need, and the more parameters you have, the slower and more expensive every single word becomes to generate. Mixture of Experts (MoE) is the architecture that reshaped that trade-off — not erased it, as you'll see, but moved it somewhere more manageable. It's the reason models like DeepSeek-V3, Llama 4, Mixtral, and Qwen3 can carry hundreds of billions of parameters while running each token through only a small fraction of them.
+Large language models have a simple problem: the more you want them to know, the more parameters you need, and the more parameters you have, the slower and more expensive every single word becomes to generate. **Mixture of Experts (MoE)** is the architecture that reshaped that trade-off — not erased it, as you'll see, but moved it somewhere more manageable. It's the reason models like DeepSeek-V3, Llama 4, Mixtral, and Qwen3 can carry hundreds of billions of parameters while running each token through only a small fraction of them.
 
 This article covers what MoE is, why it exists, what it costs you in return, what it looks like inside a model, who's using it, and where the research is headed.
 
@@ -18,11 +18,11 @@ This article covers what MoE is, why it exists, what it costs you in return, wha
 
 By the end of this article, you should be able to:
 
-- Explain, in plain language, why a dense feed-forward network gets slower to run as it gets smarter — and why that's a structural problem, not just a scaling inconvenience.
-- Describe what a Mixture of Experts layer actually is: what a "router" does, what an "expert" is, and how the two work together to process a token.
-- Name the real trade-off MoE introduces — it doesn't make models cheaper for free, it shifts the bottleneck from compute to memory — and explain why that matters for serving these models.
-- Recognize which major LLMs today use MoE (DeepSeek, Llama 4, Mixtral, Qwen3, Grok, and others), and read active/total parameter counts (e.g. "37B active / 671B total") correctly.
-- Point to what's still unsolved: load balancing, expert specialization, and the emerging work on offloading and prefetching experts to close the memory gap.
+- Explain, in plain language, why a **dense feed-forward network** gets slower to run as it gets smarter — and why that's a structural problem, not just a scaling inconvenience.
+- Describe what a Mixture of Experts layer actually is: what a **router** does, what an **expert** is, and how the two work together to process a token.
+- Name the real trade-off MoE introduces — it doesn't make models cheaper for free, it shifts the bottleneck **from compute to memory** — and explain why that matters for serving these models.
+- Recognize which major LLMs today use MoE (DeepSeek, Llama 4, Mixtral, Qwen3, Grok, and others), and read active/total parameter counts (e.g. **"37B active / 671B total"**) correctly.
+- Point to what's still unsolved: **load balancing**, **expert specialization**, and the emerging work on offloading and prefetching experts to close the memory gap.
 
 ---
 
@@ -40,7 +40,7 @@ Worse, her knowledge was becoming a blur. She was so busy being *everything to e
 
 The town council had, without meaning to, built a system where **growing what the clinic knew and growing how long every visit took were the same lever.** There was no way to add more medical knowledge without every single patient — even the ones with a common cold — waiting longer for it.
 
-This is exactly the situation a dense feed-forward network (FFN) is in.
+*This is exactly the situation a* **dense feed-forward network (FFN)** *is in.*
 
 **Translating the story back to the model.** In a standard ("dense") transformer, every token that flows through a layer is processed by the **same** feed-forward network — the same weights, every time, for every token, regardless of whether the token is "the," "photosynthesis," or a line of Python. Just like the village doctor, that single network has to hold everything it has ever learned — grammar, code syntax, chemistry, poetry — inside one shared set of weights, and every token pays the full cost of activating all of it, whether it needed most of that knowledge or not. This creates three concrete problems:
 
@@ -50,7 +50,7 @@ This is exactly the situation a dense feed-forward network (FFN) is in.
 
 **3. Diminishing returns from raw scale.** Beyond a certain point, simply making a dense FFN bigger yields smaller and smaller quality improvements per unit of added compute — you're paying full price for capacity that any individual token barely uses, the same way the village pays for the doctor's cardiology expertise on every single visit, cough or not.
 
-What the village actually needed, and what a dense FFN actually needs, is a way to grow how much the *system* knows without making every single visit slower — a general practitioner who refers patients to the right specialist instead of trying to be all specialists at once. That's exactly what Mixture of Experts provides, and it's the subject of the next section.
+*What the village actually needed, and what a dense FFN actually needs, is a way to grow how much the system knows without making every single visit slower* — a general practitioner who refers patients to the right specialist instead of trying to be all specialists at once. That's exactly what Mixture of Experts provides, and it's the subject of the next section.
 
 ---
 
@@ -63,17 +63,17 @@ MoE applies this idea to a neural network. In a normal (dense) transformer, ever
 - A set of **experts** — many smaller FFNs (could be 8, could be 256), each structurally identical but with its own separately trained weights.
 - A **router** (sometimes called a gate) — a small learned network that looks at each token and decides which expert(s) should handle it.
 
-For each token, the router picks a small number of experts (commonly 1, 2, or 8 out of hundreds), sends the token only to those, and combines their outputs — usually weighted by how confident the router was in each pick.
+For each token, the router picks a small number of experts — this is called **top-k routing** (commonly top-1, top-2, or top-8 out of hundreds) — sends the token only to those, and combines their outputs, usually weighted by how confident the router was in each pick.
 
 The result: the model's **total parameter count** can be enormous (all the experts combined), but the **active parameter count** for any given token — and therefore the compute cost — stays small. This is usually described as the difference between a model's total size and its active size, e.g. "671B total, 37B active." Concretely: a dense model with 671B parameters would cost roughly 18x more compute per token to run than the MoE version that only activates 37B — same total knowledge in the building, a fraction of the cost per patient.
 
-> **First-principles summary:** MoE trades a network that always does a medium amount of work for a network that almost always does a small amount of work, but occasionally has access to a huge amount of specialized knowledge.
+> **First-principles summary:** *MoE trades a network that always does a medium amount of work for a network that almost always does a small amount of work, but occasionally has access to a huge amount of specialized knowledge.*
 
 ---
 
 ## 3. Why It Matters: Where MoE Earns Its Keep
 
-**Scaling knowledge without scaling cost.** The main reason labs adopt MoE is simple: you can grow a model's capacity (how much it can "know" or represent) without a proportional growth in the cost of running it. This is why frontier-scale models today routinely have total parameter counts in the hundreds of billions to low trillions, while only activating tens of billions per token — something that would be computationally unaffordable in a dense model of the same total size.
+**Scaling knowledge without scaling cost.** The main reason labs adopt MoE is simple: *you can grow a model's capacity without a proportional growth in the cost of running it.* This is why frontier-scale models today routinely have total parameter counts in the hundreds of billions to low trillions, while only activating tens of billions per token — something that would be computationally unaffordable in a dense model of the same total size.
 
 **Specialization across domains.** Because different experts can end up specializing — some picking up more math-heavy patterns, others more attuned to code, dialogue, or specific languages — MoE models can, in principle, handle a broader range of tasks well without one generalist FFN having to do everything adequately but nothing brilliantly.
 
@@ -93,7 +93,7 @@ Everything so far makes MoE sound like a free lunch — more capacity, same comp
 
 **Training has its own failure mode.** The router is learned, not designed, and left alone it tends to collapse onto a favorite handful of experts early in training — the rest starve, undertrain, and never catch up. Avoiding this (via auxiliary losses, bias-based balancing, etc.) is most of what MoE-specific training research is about; see Section 7.
 
-None of this erases MoE's advantage — it's still the reason frontier models can be as capable as they are per dollar of inference compute — but it explains why MoE didn't fully replace dense models everywhere, and why so much of the research effort (next section) is about managing this trade rather than the basic routing idea itself.
+*None of this erases MoE's advantage — it's still the reason frontier models can be as capable as they are per dollar of inference compute — but it explains why MoE didn't fully replace dense models everywhere*, and why so much of the research effort (next section) is about managing this trade rather than the basic routing idea itself.
 
 ---
 
@@ -138,7 +138,7 @@ flowchart TD
 
 ## 6. Who's Using MoE: The Current Landscape
 
-MoE went from a research curiosity to the default architecture for frontier-scale open models within a few years. As of mid-2026:
+MoE went from a research curiosity to the **default architecture for frontier-scale open models** within a few years. As of mid-2026:
 
 | Model | Total params | Active params | Experts |
 |---|---|---|---|
@@ -152,7 +152,7 @@ MoE went from a research curiosity to the default architecture for frontier-scal
 | **Mistral Large / Kimi K2 / GPT-OSS** | varies | varies | MoE |
 
 A few things worth noting:
-- The naming convention "A22B," "17B active," etc. refers to **active** parameters per token — the number that actually determines inference cost, not the flashier total parameter count.
+- The naming convention "A22B," "17B active," etc. refers to **active** parameters per token — *the number that actually determines inference cost, not the flashier total parameter count.*
 - The trend across 2025–2026 has been toward **more, smaller experts** (fine-grained routing — e.g. 128–256 experts) rather than fewer, larger ones (Mixtral's original 8), because fine-grained experts specialize more precisely and reduce redundant knowledge across experts.
 - Not every major lab has publicly confirmed using MoE for their flagship models — architecture details for some closed models (e.g. Anthropic's Claude family and Google's Gemini) haven't been disclosed, so they're excluded from confident claims here.
 - The DeepSeek-V4 figures above come from third-party reporting rather than a primary technical report at time of writing — treat them as directionally right but verify against DeepSeek's own release notes before citing them as fact.
@@ -173,15 +173,15 @@ MoE looks simple in a diagram, but making the router behave well in practice is 
 
 **MoE beyond text.** Researchers are extending sparse expert routing into multimodal models — routing not just by token content but by modality or task, so a single model can allocate distinct expert capacity to, say, vision versus language versus audio.
 
-**Attacking the memory problem, not just the compute problem.** Section 4 flagged that MoE shifts the bottleneck from compute to memory — every expert has to sit ready even though only a couple run per token. Active research here includes **expert offloading** (keeping cold, rarely-used experts on CPU RAM or even SSD and streaming them onto the GPU only when routed to), **expert-level quantization** (compressing rarely-hit experts more aggressively than hot ones), and **routing-aware prefetching** (predicting which experts the next few tokens will need and loading them ahead of time). None of these are fully solved — they're the current frontier of making MoE's memory bill match its compute bill.
+**Attacking the memory problem, not just the compute problem.** Section 4 flagged that MoE shifts the bottleneck from compute to memory — every expert has to sit ready even though only a couple run per token. Active research here includes **expert offloading** (keeping cold, rarely-used experts on CPU RAM or even SSD and streaming them onto the GPU only when routed to), **expert-level quantization** (compressing rarely-hit experts more aggressively than hot ones), and **routing-aware prefetching** (predicting which experts the next few tokens will need and loading them ahead of time). *None of these are fully solved — they're the current frontier of making MoE's memory bill match its compute bill.*
 
 ---
 
 ## Closing
 
-The story this article opened with — the village doctor who couldn't grow her knowledge without slowing down every patient — is the exact trade-off dense FFNs are stuck with, and MoE is the architectural fix: split the doctor into a hospital of specialists, and route each patient to only the ones they need. That's what let model *capacity* and per-token *compute* stop moving in lockstep, and it's why nearly every frontier open model released since 2024 has adopted some form of it.
+The story this article opened with — the village doctor who couldn't grow her knowledge without slowing down every patient — is the exact trade-off dense FFNs are stuck with, and MoE is the architectural fix: split the doctor into a **hospital of specialists**, and route each patient to only the ones they need. That's what let model *capacity* and per-token *compute* stop moving in lockstep, and it's why nearly every frontier open model released since 2024 has adopted some form of it.
 
-Shazeer's 2017 paper called the sparsely-gated layer a way to add capacity "without a proportional increase in computation" — a modest description of what turned out to be a foundational idea. DeepSeek didn't reinvent that idea in 2024; it sharpened it, splitting coarse experts into finer ones and giving the router a cleaner signal to work with. The lesson underneath both is the same one that keeps showing up across model architecture: growth doesn't have to mean every part of the system doing more work on every input — it can mean building a system where each part only does the work it's actually good at.
+Shazeer's 2017 paper called the sparsely-gated layer a way to add capacity "without a proportional increase in computation" — a modest description of what turned out to be a foundational idea. **DeepSeek didn't reinvent that idea in 2024; it sharpened it**, splitting coarse experts into finer ones and giving the router a cleaner signal to work with. *The lesson underneath both is the same one that keeps showing up across model architecture: growth doesn't have to mean every part of the system doing more work on every input — it can mean building a system where* **each part only does the work it's actually good at.**
 
 ---
 
