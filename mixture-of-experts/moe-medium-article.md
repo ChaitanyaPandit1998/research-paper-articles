@@ -75,7 +75,7 @@ The result: the model's **total parameter count** can be enormous (all the exper
 
 **Scaling knowledge without scaling cost.** The main reason labs adopt MoE is simple: *you can grow a model's capacity without a proportional growth in the cost of running it.* This is why frontier-scale models today routinely have total parameter counts in the hundreds of billions to low trillions, while only activating tens of billions per token — something that would be computationally unaffordable in a dense model of the same total size.
 
-**Specialization across domains.** Because different experts can end up specializing — some picking up more math-heavy patterns, others more attuned to code, dialogue, or specific languages — MoE models can, in principle, handle a broader range of tasks well without one generalist FFN having to do everything adequately but nothing brilliantly.
+**Specialization across domains.** Because different experts can end up specializing — some picking up more math-heavy patterns, others more attuned to code, dialogue, or specific languages — MoE models can, in principle, handle a broader range of tasks well without one generalist FFN having to do everything adequately but nothing brilliantly. (Worth a caveat, covered in Section 8: this kind of clean, human-legible specialization isn't automatic — some architectures show it clearly, others don't.)
 
 **Cheaper training and serving at a given quality bar.** For a fixed compute budget, MoE models tend to reach a given quality level faster than dense models of equivalent active size, because the extra (inactive-per-token) parameters still contribute useful capacity during training even though they're cheap to run at inference.
 
@@ -177,6 +177,43 @@ MoE looks simple in a diagram, but making the router behave well in practice is 
 
 ---
 
+## 8. What the Ablation Studies Actually Show
+
+It's easy to state MoE design choices as if they were obviously correct. They weren't — each one was tested against the alternative, and the papers below show their work. A few worth knowing:
+
+**Fine-grained segmentation and shared experts each help independently.** DeepSeekMoE's own Table 1 (Dai et al., 2024) holds total and active parameters fixed at 2B/0.3B and compares five architectures head-to-head on the same 100B-token run:
+
+| Metric | Dense | Hash Layer | Switch | GShard | **DeepSeekMoE** |
+|---|---|---|---|---|---|
+| Pile (Loss, lower is better) | 2.060 | 1.932 | 1.881 | 1.867 | **1.808** |
+| HellaSwag (Acc.) | 38.8 | 46.2 | 49.1 | 50.5 | **54.8** |
+| PIQA (Acc.) | 66.8 | 68.4 | 70.5 | 70.6 | **72.3** |
+| ARC-challenge (Acc.) | 26.0 | 28.2 | 30.2 | 31.6 | **34.3** |
+| TriviaQA (EM) | 4.9 | 6.5 | 8.9 | 10.2 | **16.6** |
+
+*Source: Table 1, Dai et al., 2024. All models matched at 2.0B total / 0.3B activated parameters, 100B training tokens.*
+
+The more striking ablation is what happens when the shared expert is removed and its capacity handed to a routed expert instead, at identical compute cost: Pile loss jumps from **1.808 to 2.414** — a large regression for a change that keeps FLOPs constant. That's the paper's evidence for calling the shared expert "irreplaceable by routed experts," not just a stylistic addition.
+
+**Auxiliary-loss-free balancing isn't just simpler, it measurably helps.** Wang et al. (2024), the paper behind DeepSeek-V3's routing, ablates the auxiliary-loss-free (Loss-Free) strategy directly against traditional auxiliary-loss-controlled (Loss-Controlled) balancing, at matched scale, using **MaxVio** (maximum violation of perfect load balance — lower is better) as the load-balance metric:
+
+| Model size | Method | Validation Perplexity | MaxVio (global) |
+|---|---|---|---|
+| 1B | Loss-Controlled | 9.56 | 0.72 |
+| 1B | **Loss-Free** | **9.50** | **0.04** |
+| 3B | Loss-Controlled | 7.97 | 0.52 |
+| 3B | **Loss-Free** | **7.92** | **0.04** |
+
+*Source: Table 2, Wang et al., 2024.*
+
+Loss-Free Balancing wins on both axes at both scales — better perplexity *and* an order-of-magnitude better load balance (0.04 vs. 0.5–0.7 MaxVio) — which is the concrete evidence behind the claim in Section 7 that auxiliary losses were fighting the training objective, not just supporting it.
+
+**Router stability isn't free — and z-loss is the fix.** ST-MoE (Zoph et al., 2022) ran a large-scale stability study on sparse models and found that a plain router (just top-k selection) is prone to training instability at scale. Their proposed fix, the router z-loss, is itself an ablation result: added on top of the standard load-balancing loss, it significantly improves training stability with no measurable quality cost. It's a useful example of an MoE-specific failure mode that wouldn't show up in a small-scale prototype.
+
+**Not every specialization claim holds up under inspection.** Worth a note of intellectual honesty: the Mixtral technical report (Jiang et al., 2024) analyzed which tokens its router sent to which experts and found *no strong evidence of clean domain-based specialization* — experts didn't cleanly split along lines like "math" or "code" the way Section 3 of this article (and much popular MoE writing) implies. Some structure showed up in more syntactic patterns instead. This doesn't contradict DeepSeekMoE's specialization results, which used objectives specifically designed to encourage it — but it's a reminder that "the experts specialize" is a design goal some architectures actively pursue, not an automatic property of MoE itself.
+
+---
+
 ## Closing
 
 The story this article opened with — the village doctor who couldn't grow her knowledge without slowing down every patient — is the exact trade-off dense FFNs are stuck with, and MoE is the architectural fix: split the doctor into a **hospital of specialists**, and route each patient to only the ones they need. That's what let model *capacity* and per-token *compute* stop moving in lockstep, and it's why nearly every frontier open model released since 2024 has adopted some form of it.
@@ -196,7 +233,7 @@ Shazeer's 2017 paper called the sparsely-gated layer a way to add capacity "with
 
 ---
 
-## 8. Further Reading
+## 9. Further Reading
 
 **Foundational papers:**
 - Shazeer et al., 2017 — [Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer](https://arxiv.org/abs/1701.06538) — the original sparsely-gated MoE.
@@ -210,7 +247,10 @@ Shazeer's 2017 paper called the sparsely-gated layer a way to add capacity "with
 
 **Newer research directions:**
 - [Autonomy-of-Experts Models](https://arxiv.org/abs/2501.13074) — expert-driven routing.
-- Jiang et al., 2024 — [Mixtral of Experts](https://arxiv.org/abs/2401.04088) — the Mixtral 8x7B/8x22B architecture.
+- Jiang et al., 2024 — [Mixtral of Experts](https://arxiv.org/abs/2401.04088) — the Mixtral 8x7B/8x22B architecture; includes the router-specialization analysis referenced in Section 8.
+
+**Ablation studies (Section 8):**
+- Zoph et al., 2022 — [ST-MoE: Designing Stable and Transferable Sparse Expert Models](https://arxiv.org/abs/2202.08906) — the router z-loss ablation and broader stability study.
 
 **In this repo:**
 - [`transformer/llama4/MoE.md`](../transformer/llama4/MoE.md) — code-level walkthrough of Llama 4's MoE implementation.
