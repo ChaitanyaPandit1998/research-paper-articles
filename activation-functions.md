@@ -29,7 +29,11 @@ An activation function is a small, fixed, elementwise function applied to a laye
 
 A network without activation functions is just linear algebra pretending to be deep.
 
-An activation function is a small, fixed, elementwise function that a layer applies to its output before passing it to the next layer. Every neuron computes a weighted sum of its inputs, $z = Wx + b$, and the activation function decides how that raw sum gets translated into a signal the rest of the network actually uses. It takes one number in and returns one number out, applied independently to every element of the layer's output.
+An activation function is a small, fixed, elementwise function that a layer applies to its output before passing it to the next layer. Every neuron computes a weighted sum of its inputs:
+
+$$z = Wx + b$$
+
+The activation function decides how that raw sum gets translated into a signal the rest of the network actually uses. It takes one number in and returns one number out, applied independently to every element of the layer's output.
 
 The reason this matters more than its modest description suggests: without it, depth is an illusion. Stack any number of purely linear layers and the result collapses algebraically into a single linear layer. Watch it happen with two layers:
 
@@ -83,6 +87,12 @@ $$\sigma'(x) = \sigma(x)\big(1-\sigma(x)\big)$$
 
 maxes out at just 0.25 (at $x=0$) and shrinks toward zero at both tails, so gradients flowing backward through several sigmoid layers shrink geometrically. That's the vanishing-gradient problem that made deep sigmoid networks nearly untrainable — worked out in numbers in [Section 4](#4-worked-examples).
 
+**Worked example.** Take $x = 1.5$:
+
+$$\sigma(1.5) = \frac{1}{1 + e^{-1.5}} = \frac{1}{1 + 0.2231} = 0.8176$$
+
+A moderately positive input is squashed to a number close to, but never reaching, 1.
+
 *Used in:* still standard as an **output-layer** gate for binary classification and inside LSTM/GRU gates — just rarely used to activate hidden layers anymore.
 
 - **Pros:** output bounded in (0,1), reads naturally as a probability; smooth and differentiable everywhere.
@@ -95,6 +105,12 @@ maxes out at just 0.25 (at $x=0$) and shrinks toward zero at both tails, so grad
 $$\tanh(x) = \frac{e^{x} - e^{-x}}{e^{x} + e^{-x}} = 2\sigma(2x) - 1$$
 
 Same S-shape as sigmoid, same saturating tails, same vanishing-gradient failure mode for deep stacks — it's a rescaled sigmoid, so the math inherits both the strength and the weakness. It became the default hidden-layer activation for RNNs (and still is, inside LSTM/GRU cell states) precisely because zero-centering made optimization noticeably more stable than sigmoid, even though the saturation problem never went away.
+
+**Worked example.** Take the same $x = 1.5$ used for sigmoid, so the two are directly comparable:
+
+$$\tanh(1.5) = \frac{e^{1.5} - e^{-1.5}}{e^{1.5} + e^{-1.5}} = \frac{4.4817 - 0.2231}{4.4817 + 0.2231} = 0.9051$$
+
+Notice it's pushed much closer to its ceiling (0.9051 out of a max of 1) than sigmoid was (0.8176 out of a max of 1) — tanh's steeper slope near the origin saturates faster for the same input.
 
 *Used in:* dominant inside **recurrent** architectures (LSTM, GRU cell/hidden states); largely superseded by ReLU-family functions in feed-forward and transformer blocks.
 
@@ -109,6 +125,12 @@ $$\text{ReLU}(x) = \max(0, x)$$
 
 The shape is two straight line segments meeting at a corner: flat at zero for all $x \le 0$, then a perfect 45° line for $x > 0$. It doesn't saturate on the positive side at all — the gradient there is a constant 1, so it doesn't shrink no matter how deep the stack goes, which is exactly why it unlocked training networks dozens of layers deep. The tradeoff is bluntness: any neuron that lands in negative territory outputs zero and has zero gradient, so if its weights get pushed into a regime where it's *always* negative, it stops updating forever — the "dying ReLU" problem.
 
+**Worked example.** Take $x = -2$ and $x = 3$:
+
+$$\text{ReLU}(-2) = \max(0, -2) = 0 \qquad \text{ReLU}(3) = \max(0, 3) = 3$$
+
+The negative input is discarded completely; the positive input passes through untouched, unscaled.
+
 *Used in:* the default for CNNs and most feed-forward networks throughout the 2010s; still common today for its simplicity and speed.
 
 - **Pros:** no vanishing gradient for positive inputs; trivially cheap — one comparison, no exponential; induces sparsity (many neurons output exactly 0).
@@ -122,6 +144,12 @@ $$\text{LeakyReLU}(x) = \begin{cases} x & x > 0 \\ \alpha x & x \le 0 \end{cases
 
 Visually it's almost indistinguishable from ReLU — the same hinge at the origin — except the left arm isn't flat, it's a very shallow downward line instead of sitting at zero. That tiny slope is the entire fix: a neuron that lands in negative territory still has a (small) nonzero gradient, so it can recover instead of dying permanently. It directly targets ReLU's single biggest failure mode without changing the cost or the positive-side behavior at all.
 
+**Worked example.** Same inputs as ReLU above, $\alpha = 0.01$:
+
+$$\text{LeakyReLU}(-2) = 0.01 \times (-2) = -0.02 \qquad \text{LeakyReLU}(3) = 3$$
+
+Where plain ReLU would have output exactly $0$ for $x=-2$, Leaky ReLU outputs $-0.02$ — small, but nonzero, which is enough to keep a gradient flowing back through that neuron.
+
 *Used in:* common in GANs and CNNs where dying units are a known problem; largely bypassed in modern LLMs in favor of GELU/SiLU-family functions.
 
 - **Pros:** fixes dying-ReLU by keeping gradient flow alive for $x<0$; just as cheap as ReLU.
@@ -131,13 +159,25 @@ Visually it's almost indistinguishable from ReLU — the same hinge at the origi
 
 **Intuition first.** Where ReLU is a hard valve that's either fully open or fully shut, GELU is a valve with judgment: it weights each input by how likely a standard Gaussian random variable would be to fall below it, so instead of a sharp on/off cutoff at zero, small negative inputs still leak through a little and the transition into "on" is a smooth curve, not a corner.
 
-$$\text{GELU}(x) = x \cdot \Phi(x), \qquad \Phi(x) = P(Z \le x),\ Z \sim \mathcal{N}(0,1)$$
+$$\text{GELU}(x) = x \cdot \Phi(x)$$
 
-**Where the approximation comes from.** $\Phi(x)$ has no closed form — it's an integral of the Gaussian density — so in practice it's evaluated either through the error function, $\Phi(x) = \frac{1}{2}\left[1 + \text{erf}(x/\sqrt{2})\right]$, or through the cheaper tanh-based approximation used in most deep learning libraries:
+$$\Phi(x) = P(Z \le x),\qquad Z \sim \mathcal{N}(0,1)$$
+
+**Where the approximation comes from.** $\Phi(x)$ has no closed form — it's an integral of the Gaussian density — so in practice it's evaluated either through the error function,
+
+$$\Phi(x) = \frac{1}{2}\left[1 + \text{erf}(x/\sqrt{2})\right]$$
+
+or through the cheaper tanh-based approximation used in most deep learning libraries:
 
 $$\text{GELU}(x) \approx 0.5x\left(1 + \tanh\left[\sqrt{2/\pi}\,\left(x + 0.044715\,x^3\right)\right]\right)$$
 
 The shape tracks ReLU's overall trend — near zero for very negative $x$, roughly linear for large positive $x$ — but everything around the origin is rounded off: there's a small dip slightly below zero for negative inputs (unlike ReLU's flat clamp) and a smooth curved onset instead of a kink. That smoothness (the function is infinitely differentiable) removes the exact-zero dead zone that causes dying neurons, while the probabilistic framing — "gate each input by how large it is, stochastically" — was designed to combine the regularizing feel of dropout with the shape of an activation function.
+
+**Worked example.** Take the same $x = 1.5$ used for sigmoid and tanh, using the tanh-based approximation:
+
+$$\text{GELU}(1.5) \approx 0.5 \times 1.5 \times \big(1 + \tanh[0.7979 \times (1.5 + 0.044715 \times 1.5^3)]\big) = 1.3996$$
+
+Compare to $\text{ReLU}(1.5) = 1.5$ exactly — GELU pulls the output in slightly, even for a positive input, because $\Phi(1.5) = 0.933$ rather than $1$.
 
 *Used in:* the activation used in **GPT-2, BERT**, and most of the first wave of transformer language models.
 
@@ -151,6 +191,12 @@ The shape tracks ReLU's overall trend — near zero for very negative $x$, rough
 $$\text{SiLU}(x) = x \cdot \sigma(x) = \frac{x}{1 + e^{-x}}$$
 
 Nearly identical in shape to GELU — both dip slightly below zero just left of the origin, both curve smoothly into a near-linear rise on the right — which is no accident, since both are smoothed relatives of the same ReLU trend. SiLU is a touch cheaper to compute (one sigmoid vs. an erf/tanh approximation) and was discovered largely via automated search over candidate activation functions, then confirmed by hand — a rare case of a simple closed-form function beating hand-designed alternatives at scale.
+
+**Worked example.** Take the same $x = 1.5$ again, reusing $\sigma(1.5) = 0.8176$ from the sigmoid example:
+
+$$\text{SiLU}(1.5) = 1.5 \times \sigma(1.5) = 1.5 \times 0.8176 = 1.2264$$
+
+Slightly below GELU's $1.3996$ at the same input — the two track each other closely but are not identical.
 
 *Used in:* the gate activation inside **SwiGLU**, used in **Llama, Mistral, Qwen**, and most current open-weight LLM feed-forward blocks.
 
@@ -175,6 +221,18 @@ $$\text{SwiGLU}(x) = \big(\text{SiLU}(xW) \otimes xV\big)\,W_2$$
 
 There's no single fixed "shape" to draw for SwiGLU the way there is for SiLU — it's a function of two independent linear projections of the full input vector, not a 1-D curve of a scalar. What carries over from SiLU is the smoothness and the absence of a hard dead zone; what's added is expressiveness, since the gate and the content are no longer forced to be the same signal. The FFN's hidden dimension is typically shrunk by roughly two-thirds to keep the parameter count comparable to a non-gated FFN, since SwiGLU needs three weight matrices ($W, V, W_2$) instead of two.
 
+**Worked example.** Take a toy input vector $x = [1, -1]$, with tiny $2\times2$ weight matrices $W = \begin{pmatrix}1&1\\1&-1\end{pmatrix}$ and $V = \begin{pmatrix}2&0\\0&2\end{pmatrix}$ (skip $W_2$ by treating it as identity, to isolate the gating step):
+
+$$xW = [1{\times}1 + (-1){\times}1,\ 1{\times}1 + (-1){\times}(-1)] = [0,\ 2]$$
+
+$$xV = [1{\times}2 + (-1){\times}0,\ 1{\times}0 + (-1){\times}2] = [2,\ -2]$$
+
+$$\text{SiLU}(xW) = [\text{SiLU}(0),\ \text{SiLU}(2)] = [0,\ 1.7616]$$
+
+$$\text{SwiGLU}(x) = \text{SiLU}(xW) \otimes xV = [0 \times 2,\ 1.7616 \times (-2)] = [0,\ -3.5232]$$
+
+The first output dimension is gated shut entirely ($\text{SiLU}(0)=0$ kills it regardless of what $xV$ was); the second passes through, flipped in sign and scaled, because its gate value was large. This is the mechanism in miniature: the gate decides per-dimension how much of the content survives.
+
 *Used in:* the FFN activation in **Llama (all versions), Mistral, Qwen, PaLM**, and most current-generation open LLMs.
 
 - **Pros:** consistently outperforms plain ReLU/GELU FFNs at equal compute in published ablations; gate and content are learned separately — more expressive per FFN block.
@@ -187,6 +245,14 @@ There's no single fixed "shape" to draw for SwiGLU the way there is for SiLU —
 $$\text{GeGLU}(x) = \big(\text{GELU}(xW) \otimes xV\big)\,W_2$$
 
 Same structural diagram as SwiGLU, same parameter-count consideration, same reason for existing: separating "how much content" from "how much to let through" gives the FFN more room to represent complex per-token functions than a single activation curve can.
+
+**Worked example.** Same $x$, $W$, $V$ as the SwiGLU example above, so the two can be compared directly. Reusing $xW = [0, 2]$ and $xV = [2, -2]$:
+
+$$\text{GELU}(xW) = [\text{GELU}(0),\ \text{GELU}(2)] = [0,\ 1.9546]$$
+
+$$\text{GeGLU}(x) = \text{GELU}(xW) \otimes xV = [0 \times 2,\ 1.9546 \times (-2)] = [0,\ -3.9092]$$
+
+Nearly the same result as SwiGLU's $[0, -3.5232]$ — the first dimension is gated shut identically, the second differs only because $\text{GELU}(2) = 1.9546$ is slightly larger than $\text{SiLU}(2) = 1.7616$. This is the SwiGLU/GeGLU relationship in one example: same structure, marginally different numbers.
 
 *Used in:* the FFN activation in Google's **Gemma** model family (and T5's later variants).
 
