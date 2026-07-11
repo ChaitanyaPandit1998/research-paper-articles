@@ -95,11 +95,6 @@ $$\sigma(1.5) = \frac{1}{1 + e^{-1.5}} = \frac{1}{1 + 0.2231} = 0.8176$$
 
 A moderately positive input is squashed to a number close to, but never reaching, 1.
 
-*Used in:* still standard as an **output-layer** gate for binary classification and inside LSTM/GRU gates — just rarely used to activate hidden layers anymore.
-
-- **Pros:** output bounded in (0,1), reads naturally as a probability; smooth and differentiable everywhere.
-- **Cons:** vanishing gradients away from $x=0$; not zero-centered, which slows optimization; involves an exponential — costlier than a hinge function.
-
 ### Tanh *(hyperbolic tangent, 1990s–2010s)*
 
 **Intuition first.** Tanh is sigmoid's better-balanced sibling — the same soft S-curve, but stretched and shifted so it eases between −1 and 1 instead of 0 and 1, passing through the origin. That "zero-centered" property sounds cosmetic but isn't: when a layer's outputs are centered around zero rather than all positive, the gradient updates to the next layer's weights don't get stuck pushing consistently in one direction.
@@ -115,11 +110,6 @@ Same S-shape as sigmoid, same saturating tails, same vanishing-gradient failure 
 $$\tanh(1.5) = \frac{e^{1.5} - e^{-1.5}}{e^{1.5} + e^{-1.5}} = \frac{4.4817 - 0.2231}{4.4817 + 0.2231} = 0.9051$$
 
 Notice it's pushed much closer to its ceiling (0.9051 out of a max of 1) than sigmoid was (0.8176 out of a max of 1) — tanh's steeper slope near the origin saturates faster for the same input.
-
-*Used in:* dominant inside **recurrent** architectures (LSTM, GRU cell/hidden states); largely superseded by ReLU-family functions in feed-forward and transformer blocks.
-
-- **Pros:** zero-centered output — better-behaved gradients than sigmoid; smooth, well-understood, bounded.
-- **Cons:** still saturates and still vanishes gradients at the tails; exponential-based — more expensive than ReLU.
 
 ### ReLU *(rectified linear unit, 2011–present)*
 
@@ -137,11 +127,6 @@ $$\text{ReLU}(-2) = \max(0, -2) = 0 \qquad \text{ReLU}(3) = \max(0, 3) = 3$$
 
 The negative input is discarded completely; the positive input passes through untouched, unscaled.
 
-*Used in:* the default for CNNs and most feed-forward networks throughout the 2010s; still common today for its simplicity and speed.
-
-- **Pros:** no vanishing gradient for positive inputs; trivially cheap — one comparison, no exponential; induces sparsity (many neurons output exactly 0).
-- **Cons:** dying neurons — a permanently-negative unit stops learning; not zero-centered; non-differentiable kink at $x=0$ (rarely an issue in practice).
-
 ### Leaky ReLU *(2013–present)*
 
 **Intuition first.** The same one-way valve as ReLU, but with a pinhole leak on the closed side — negative inputs aren't zeroed out, they're just heavily throttled, scaled down by a small constant instead of clamped flat.
@@ -157,11 +142,6 @@ Visually it's almost indistinguishable from ReLU — the same hinge at the origi
 $$\text{LeakyReLU}(-2) = 0.01 \times (-2) = -0.02 \qquad \text{LeakyReLU}(3) = 3$$
 
 Where plain ReLU would have output exactly $0$ for $x=-2$, Leaky ReLU outputs $-0.02$ — small, but nonzero, which is enough to keep a gradient flowing back through that neuron.
-
-*Used in:* common in GANs and CNNs where dying units are a known problem; largely bypassed in modern LLMs in favor of GELU/SiLU-family functions.
-
-- **Pros:** fixes dying-ReLU by keeping gradient flow alive for $x<0$; just as cheap as ReLU.
-- **Cons:** $\alpha$ is an extra hyperparameter to tune (or learn, as in PReLU); empirical gains over plain ReLU are inconsistent.
 
 ### GELU *(Gaussian Error Linear Unit, 2016–present)*
 
@@ -189,11 +169,6 @@ $$\text{GELU}(1.5) \approx 0.5 \times 1.5 \times \big(1 + \tanh[0.7979 \times (1
 
 Compare to $\text{ReLU}(1.5) = 1.5$ exactly — GELU pulls the output in slightly, even for a positive input, because $\Phi(1.5) = 0.933$ rather than $1$.
 
-*Used in:* the activation used in **GPT-2, BERT**, and most of the first wave of transformer language models.
-
-- **Pros:** smooth everywhere — no dead zone, no hard kink; strong empirical performance in transformers; small negative outputs preserved instead of clamped.
-- **Cons:** more expensive than ReLU (erf or tanh approximation); mostly superseded by SiLU/SwiGLU in newer LLMs.
-
 ### SiLU / Swish *(Sigmoid Linear Unit, 2017–present)*
 
 **Intuition first.** Take the input and scale it by its own sigmoid — a self-gating valve, where the input decides how open it should be. Large positive numbers gate themselves almost fully open (behaving like ReLU); numbers near zero and slightly negative gate themselves partly closed instead of being cut off outright.
@@ -209,11 +184,6 @@ Nearly identical in shape to GELU — both dip slightly below zero just left of 
 $$\text{SiLU}(1.5) = 1.5 \times \sigma(1.5) = 1.5 \times 0.8176 = 1.2264$$
 
 Slightly below GELU's $1.3996$ at the same input — the two track each other closely but are not identical.
-
-*Used in:* the gate activation inside **SwiGLU**, used in **Llama, Mistral, Qwen**, and most current open-weight LLM feed-forward blocks.
-
-- **Pros:** smooth, non-monotonic near zero, no dead zone; cheaper than GELU, comparable or better empirical results; self-gating — naturally suited to being used inside gated units.
-- **Cons:** not zero-centered; marginally more expensive than plain ReLU.
 
 ### The gated variants: SwiGLU and GeGLU
 
@@ -243,11 +213,6 @@ $$\text{SwiGLU}(x) = \text{SiLU}(xW) \otimes xV = [0 \times 2,\ 1.7616 \times (-
 
 The first output dimension is gated shut entirely ($\text{SiLU}(0)=0$ kills it regardless of what $xV$ was); the second passes through, flipped in sign and scaled, because its gate value was large. This is the mechanism in miniature: the gate decides per-dimension how much of the content survives.
 
-*Used in:* the FFN activation in **Llama (all versions), Mistral, Qwen, PaLM**, and most current-generation open LLMs.
-
-- **Pros:** consistently outperforms plain ReLU/GELU FFNs at equal compute in published ablations; gate and content are learned separately — more expressive per FFN block.
-- **Cons:** three weight matrices instead of two — more parameters per block; extra elementwise multiply — marginally more compute than a plain FFN.
-
 #### GeGLU *(gated GELU, 2020–present)*
 
 **Intuition first.** Exactly the SwiGLU idea — two independent projections, one gating the other — with GELU standing in for SiLU as the gate. Since GELU and SiLU are near-identical smoothed relatives of ReLU, GeGLU and SwiGLU behave very similarly in practice; the choice between them is closer to a house style than a principled tradeoff.
@@ -263,11 +228,6 @@ $$\text{GELU}(xW) = [\text{GELU}(0),\ \text{GELU}(2)] = [0,\ 1.9546]$$
 $$\text{GeGLU}(x) = \text{GELU}(xW) \otimes xV = [0 \times 2,\ 1.9546 \times (-2)] = [0,\ -3.9092]$$
 
 Nearly the same result as SwiGLU's $[0, -3.5232]$ — the first dimension is gated shut identically, the second differs only because $\text{GELU}(2) = 1.9546$ is slightly larger than $\text{SiLU}(2) = 1.7616$. This is the SwiGLU/GeGLU relationship in one example: same structure, marginally different numbers.
-
-*Used in:* the FFN activation in Google's **Gemma** model family (and T5's later variants).
-
-- **Pros:** same expressiveness gains as SwiGLU over non-gated FFNs; GELU's smoothness carried into the gate.
-- **Cons:** same extra-parameter, extra-multiply cost as SwiGLU; no consistent empirical edge over SwiGLU — largely an architectural choice.
 
 ### Use cases at a glance
 
