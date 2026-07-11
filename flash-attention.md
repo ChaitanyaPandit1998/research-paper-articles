@@ -154,6 +154,8 @@ All of this — loading $Q_i, K_j, V_j$ blocks, computing $S^{(j)}$, updating $m
 
 **Backward pass:** rather than storing $P$ (which would cost $O(n^2)$ memory), Flash Attention stores only $O$, $m$, and $\ell$ (each $O(n)$), and *recomputes* the needed blocks of $S$ and $P$ on the fly during backprop. This trades a modest amount of extra compute for a large reduction in memory — a good trade, since the operation is memory-bound anyway.
 
+**How much extra compute, roughly.** A standard backward pass reuses the $P$ matrix already sitting in memory from the forward pass, so its cost is on the order of the usual "backward is ~2x forward" rule of thumb — call forward $1\times$ and backward $2\times$, for $3\times$ total. Flash Attention's backward pass has to redo the $QK^T$-and-softmax work to reconstruct $P$ before it can use it, adding roughly one extra forward-sized pass on top of that same $2\times$ backward cost — around $1\times + 2\times + 1\times = 4\times$ total, versus $3\times$ for standard attention. That's roughly 30% more total FLOPs across the forward and backward pass combined. It's a deliberate trade: extra arithmetic is nearly free on a GPU that's otherwise waiting on HBM, so paying ~30% more compute to avoid ever storing an $O(n^2)$ matrix is a clear net win once $n$ is large.
+
 **A worked example with real numbers.** Take one query row with two key/value blocks of size 2, unscaled scores $S^{(1)} = [1, 3]$ for block 1 and $S^{(2)} = [2, 5]$ for block 2 (values chosen small so the arithmetic is easy to follow by hand):
 
 *Block 1:* $m^{\text{new}} = \max(-\infty, 3) = 3$. $P^{(1)} = e^{[1,3]-3} = [e^{-2}, e^{0}] = [0.135,\ 1.0]$. $\ell^{\text{new}} = 0 + (0.135+1.0) = 1.135$. $O^{\text{new}} = P^{(1)}V_1$ (say $V_1 = [10, 20]$ elementwise-paired) $= 0.135(10) + 1.0(20) = 21.35$.
@@ -232,6 +234,20 @@ out = flash_attn_func(q, k, v, causal=True)
 ```
 
 Both calls compute identical attention outputs to `naive_attention`; the difference is entirely in memory traffic and speed, which becomes visible once $N$ grows into the thousands and the naive version starts allocating gigabytes for the score matrix alone.
+
+In practice, most engineers never call `flash_attn_func` directly — they enable it through the model library they're already using. In Hugging Face `transformers`, it's a single constructor argument:
+
+```python
+from transformers import AutoModelForCausalLM
+
+model = AutoModelForCausalLM.from_pretrained(
+    "mistralai/Mistral-7B-v0.1",
+    attn_implementation="flash_attention_2",   # or "sdpa" for PyTorch's built-in kernel
+    torch_dtype="bfloat16",
+).to("cuda")
+```
+
+`attn_implementation="flash_attention_2"` requires the `flash-attn` package to be installed and swaps in the fused kernel for every attention layer in the model; `"sdpa"` uses PyTorch's built-in dispatch instead (no extra install, slightly less optimized than a hand-tuned `flash-attn` build, but portable). Both replace every attention call in the model with the mechanics described above — nothing else about the model changes.
 
 ---
 
