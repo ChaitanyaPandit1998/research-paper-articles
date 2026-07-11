@@ -22,6 +22,7 @@ Flash Attention is one of the few systems-level ideas in deep learning that chan
 7. [Pros and cons](#7-pros-and-cons)
 8. [Summary](#8-summary)
 9. [Key takeaways](#9-key-takeaways)
+10. [Further reading](#10-further-reading)
 
 ---
 
@@ -57,6 +58,18 @@ Why it matters in practice:
 **Prefill vs. decode: two different bottlenecks.** Everything above describes *training* and *prefill* (processing a full prompt at once) — many query tokens against many keys, so the $n \times n$ score matrix is the problem. Autoregressive *decoding* (generating one token at a time) is a different regime: a single query token attends against a growing cache of all previous keys/values. There's no large score matrix to avoid — the bottleneck shifts to reading the entire KV cache from HBM for every single new token. This is why `flash-attn` ships a separate `flash_attn_with_kvcache` function: it's still about minimizing HBM traffic, just against a cache instead of a freshly-computed block.
 
 **Pairing with GQA/MQA.** Grouped-query attention (GQA) and multi-query attention (MQA) — used in Llama 3, Mistral, and Qwen — shrink the KV cache itself by sharing key/value heads across multiple query heads. This is a complementary optimization, not a competing one: GQA/MQA reduces *how much* KV data has to be read during decode, while Flash Attention reduces the *cost per byte* of reading it. Nearly every modern open-weight LLM ships with both simultaneously.
+
+**The memory savings in actual numbers.** Both approaches need $O(nd)$ memory for $Q$, $K$, $V$, and the output — that part is identical. The difference is the *extra* memory each one needs on top of that. Standard attention's extra cost is the $n \times n$ score matrix; Flash Attention's extra cost is just two running statistics ($m$, $\ell$) per query row, i.e. $O(n)$. For a single attention head, fp16, head dim $d=64$:
+
+| Sequence length $n$ | Standard attention's extra memory ($n^2$ score matrix) | Flash Attention's extra memory ($m,\ell$ running stats) |
+|---|---|---|
+| 4,096 | ~32 MB | ~32 KB |
+| 32,768 | ~2 GB | ~256 KB |
+| 131,072 (128K) | ~32 GB | ~1 MB |
+
+That's *per head, per batch item* — a real model with, say, 32 heads and a batch of 8 multiplies the standard-attention column by 256, which is exactly why 128K-context standard attention isn't just slow, it's usually impossible to fit in GPU memory at all, while Flash Attention's extra cost stays in the kilobytes-to-megabytes range regardless of context length.
+
+**When you might not need it.** For short sequences (a few hundred tokens) the $n^2$ score matrix is small enough that it fits comfortably in memory and the HBM round-trips it causes are cheap in absolute terms — the naive implementation is simpler to read, debug, and modify, and the speed difference versus Flash Attention is negligible. The crossover where Flash Attention's advantage becomes decisive is once $n$ climbs into the low thousands and beyond; below that, optimizing this particular op usually isn't where your time is best spent.
 
 ---
 
@@ -133,7 +146,7 @@ Causal masking: tiles strictly above the diagonal are skipped entirely
 (not computed then masked) — a free speedup FA2 added on top of v1.
 ```
 
-Each cell is a small matmul that fits in SRAM; only the four output row-blocks ($O_1$–$O_4$) ever get written back to HBM — never the 4×4 grid of raw scores.
+Each cell is a small matmul that fits in SRAM; only the four output row-blocks ($O_1$–$O_4$) ever get written back to HBM — never the 4×4 grid of raw scores. (Tile size itself — how many tokens fit in one block — is chosen by the kernel at compile/launch time based on the GPU's SRAM capacity and the head dimension $d$; it isn't something you set by hand when calling `flash_attn_func` or SDPA.)
 
 **Why this is provably optimal, not just empirically faster.** The FA1 paper doesn't just show speedups — it proves a lower bound. Standard attention needs $\Theta(nd + n^2)$ HBM accesses (dominated by the $n^2$ term for long sequences). Flash Attention needs $\Theta(n^2d^2/M)$ accesses, where $M$ is the SRAM size — and the paper shows no exact attention algorithm can do asymptotically better across all values of $M$. In other words, tiling to the SRAM budget isn't a heuristic that happens to help; it's close to the theoretical floor for how little data an exact attention computation can move through HBM.
 
@@ -277,3 +290,14 @@ Both calls compute identical attention outputs to `naive_attention`; the differe
 - Memory drops from $O(n^2)$ to $O(n)$, which is what actually enables today's long-context models — the win isn't just speed, it's that training and inference at 32K-128K+ tokens becomes feasible at all.
 - v1 → v2 → v3 is a story of engineering, not new math: better parallelization (v2), then hardware-specific tricks like async data movement, FP8, and warp specialization for Hopper GPUs (v3).
 - Sliding Window Attention is a complementary technique, not a competing one — it composes with Flash Attention's tiling to push memory/compute down further, at the cost of needing multiple layers for information to travel beyond the local window.
+
+---
+
+## 10. Further reading
+
+- Dao, T., Fu, D., Ermon, S., Rudra, A., & Ré, C. (2022). *FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness.* — the original paper; introduces tiling, online softmax, and the HBM-access lower bound.
+- Dao, T. (2023). *FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning.*
+- Shah, J., Bikshandi, G., Zhang, Y., Thakkar, V., Ramani, P., & Dao, T. (2024). *FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision.*
+- Rabe, M. N., & Staats, C. (2021). *Self-attention Does Not Need $O(n^2)$ Memory.* — the memory-efficient attention precursor.
+- Jiang, A. Q., et al. (2023). *Mistral 7B.* — introduces the Sliding Window Attention + rolling KV cache combination used alongside Flash Attention.
+- Ainslie, J., et al. (2023). *GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints.* — the grouped-query attention technique paired with Flash Attention in Llama 3, Mistral, and Qwen.
