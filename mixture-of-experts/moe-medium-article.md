@@ -146,7 +146,8 @@ MoE went from a research curiosity to the default architecture for frontier-scal
 | **DeepSeek-V4** (Pro / Flash) | 1.6T / 284B | 49B / 13B | fine-grained routed + shared |
 | **Mixtral 8x22B** | 141B | 39B | 8 experts, top-2 |
 | **Qwen3-235B-A22B** | 235B | ~22B | 128 experts, top-8 |
-| **Llama 4 Scout / Maverick** | 109B / ~400B | 17B / 17B | 16 experts + shared expert |
+| **Llama 4 Scout** | 109B | 17B | 16 experts + shared expert |
+| **Llama 4 Maverick** | ~400B | 17B | 128 experts + shared expert |
 | **Grok-1 / Grok-2** | 314B+ | ~70–80B | MoE (xAI) |
 | **Mistral Large / Kimi K2 / GPT-OSS** | varies | varies | MoE |
 
