@@ -1,0 +1,36 @@
+<svg viewBox="0 0 480 320" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<rect x="0" y="0" width="480" height="320" fill="#fffef9"/>
+<text x="56" y="18" font-size="14" fill="#1c201f" font-weight="700" font-family="Georgia,ui-serif,serif">Categorical Cross-Entropy</text>
+<text x="456" y="18" font-size="10.5" fill="#565f5b" text-anchor="end">L = −Σ qᵢ log(pᵢ)</text>
+<line x1="56" y1="264.0" x2="456" y2="264.0" stroke="#1c201f1f" stroke-width="1"/>
+<text x="48" y="267.0" font-size="10" fill="#565f5b" text-anchor="end">0</text>
+<line x1="56" y1="209.5" x2="456" y2="209.5" stroke="#1c201f1f" stroke-width="1"/>
+<text x="48" y="212.5" font-size="10" fill="#565f5b" text-anchor="end">0.25</text>
+<line x1="56" y1="155.0" x2="456" y2="155.0" stroke="#1c201f1f" stroke-width="1"/>
+<text x="48" y="158.0" font-size="10" fill="#565f5b" text-anchor="end">0.5</text>
+<line x1="56" y1="100.5" x2="456" y2="100.5" stroke="#1c201f1f" stroke-width="1"/>
+<text x="48" y="103.5" font-size="10" fill="#565f5b" text-anchor="end">0.75</text>
+<line x1="56" y1="46.0" x2="456" y2="46.0" stroke="#1c201f1f" stroke-width="1"/>
+<text x="48" y="49.0" font-size="10" fill="#565f5b" text-anchor="end">1</text>
+<rect x="56" y="46" width="400" height="218" fill="none" stroke="#1c201f4a" stroke-width="1"/>
+<rect x="71.0" y="46.0" width="32.0" height="218.0" fill="#1c201f33" stroke="#1c201f4a" stroke-width="1"/>
+<rect x="109.0" y="111.4" width="32.0" height="152.6" fill="#a8641a66" stroke="#a8641a" stroke-width="1.4"/>
+<text x="106.0" y="280" font-size="10" fill="#565f5b" text-anchor="middle">cat</text>
+<text x="106.0" y="294" font-size="9.5" fill="#1f6e5f" text-anchor="middle">−log(0.70)=0.36</text>
+<rect x="171.0" y="264.0" width="32.0" height="0.0" fill="#1c201f33" stroke="#1c201f4a" stroke-width="1"/>
+<rect x="209.0" y="231.3" width="32.0" height="32.7" fill="#a8641a66" stroke="#a8641a" stroke-width="1.4"/>
+<text x="206.0" y="280" font-size="10" fill="#565f5b" text-anchor="middle">dog</text>
+<text x="206.0" y="294" font-size="9.5" fill="#1f6e5f" text-anchor="middle"></text>
+<rect x="271.0" y="264.0" width="32.0" height="0.0" fill="#1c201f33" stroke="#1c201f4a" stroke-width="1"/>
+<rect x="309.0" y="242.2" width="32.0" height="21.8" fill="#a8641a66" stroke="#a8641a" stroke-width="1.4"/>
+<text x="306.0" y="280" font-size="10" fill="#565f5b" text-anchor="middle">bird</text>
+<text x="306.0" y="294" font-size="9.5" fill="#1f6e5f" text-anchor="middle"></text>
+<rect x="371.0" y="264.0" width="32.0" height="0.0" fill="#1c201f33" stroke="#1c201f4a" stroke-width="1"/>
+<rect x="409.0" y="253.1" width="32.0" height="10.9" fill="#a8641a66" stroke="#a8641a" stroke-width="1.4"/>
+<text x="406.0" y="280" font-size="10" fill="#565f5b" text-anchor="middle">fish</text>
+<text x="406.0" y="294" font-size="9.5" fill="#1f6e5f" text-anchor="middle"></text>
+<rect x="56" y="31" width="10" height="10" fill="#1c201f33" stroke="#1c201f4a" stroke-width="1"/>
+<text x="72" y="40" font-size="10.5" fill="#565f5b">true q</text>
+<rect x="128" y="31" width="10" height="10" fill="#a8641a66" stroke="#a8641a" stroke-width="1.4"/>
+<text x="144" y="40" font-size="10.5" fill="#565f5b">predicted p</text>
+</svg>

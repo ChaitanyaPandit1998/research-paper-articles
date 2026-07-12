@@ -1,0 +1,38 @@
+<svg viewBox="0 0 640 260" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<rect x="0" y="0" width="640" height="260" fill="#fffef9"/>
+<defs>
+  <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 Z" fill="#1c201f4a"/>
+  </marker>
+</defs>
+<text x="24" y="26" font-size="14" fill="#1c201f" font-weight="700" font-family="Georgia,ui-serif,serif">Direct Preference Optimization (DPO) loss</text>
+<text x="616" y="26" font-size="10.5" fill="#565f5b" text-anchor="end">no reward model, no RL rollout</text>
+<rect x="24" y="46" width="112" height="44" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="80.0" y="66.0" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">chosen y_w</text>
+<text x="80.0" y="82.0" font-size="10" fill="#565f5b" text-anchor="middle">preferred completion</text>
+<rect x="24" y="168" width="112" height="44" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="80.0" y="188.0" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">rejected y_l</text>
+<text x="80.0" y="204.0" font-size="10" fill="#565f5b" text-anchor="middle">dispreferred completion</text>
+<line x1="136" y1="68" x2="184" y2="68" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="136" y1="190" x2="184" y2="190" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="192" y="44" width="150" height="48" rx="3" fill="#f2efe6" stroke="#a8641a" stroke-width="1.4"/>
+<text x="267.0" y="64.0" font-size="12" fill="#a8641a" text-anchor="middle" font-weight="600">log πθ(y_w|x)/π_ref(y_w|x)</text>
+<text x="267.0" y="80.0" font-size="10" fill="#565f5b" text-anchor="middle">implicit reward, chosen</text>
+<rect x="192" y="166" width="150" height="48" rx="3" fill="#f2efe6" stroke="#a8641a" stroke-width="1.4"/>
+<text x="267.0" y="186.0" font-size="12" fill="#a8641a" text-anchor="middle" font-weight="600">log πθ(y_l|x)/π_ref(y_l|x)</text>
+<text x="267.0" y="202.0" font-size="10" fill="#565f5b" text-anchor="middle">implicit reward, rejected</text>
+<line x1="342" y1="68" x2="392" y2="122" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="342" y1="190" x2="392" y2="136" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<circle cx="412" cy="129" r="20" fill="#f2efe6" stroke="#1f6e5f" stroke-width="1.6"/>
+<text x="412" y="135" font-size="16" fill="#1f6e5f" text-anchor="middle" font-weight="700">&#8722;</text>
+<line x1="432" y1="129" x2="470" y2="129" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="478" y="105" width="70" height="48" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="513.0" y="127.0" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">σ(β·Δ)</text>
+<text x="513.0" y="143.0" font-size="10" fill="#565f5b" text-anchor="middle">sigmoid</text>
+<line x1="548" y1="129" x2="588" y2="129" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="588" y="105" width="44" height="48" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="610.0" y="127.0" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">L</text>
+<text x="610.0" y="143.0" font-size="10" fill="#565f5b" text-anchor="middle">loss</text>
+<text x="24" y="236" font-size="11" fill="#565f5b">Each completion's log-probability ratio between the trained policy and a frozen reference is an implicit reward.</text>
+<text x="24" y="250" font-size="11" fill="#565f5b">DPO pushes the chosen completion's reward above the rejected one's — a single cross-entropy on that gap, no reward model needed.</text>
+</svg>
