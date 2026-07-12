@@ -95,6 +95,22 @@ Notice $v_2$ barely moved despite $g_2$ being a fairly large negative gradient �
 
 **Nesterov momentum**, a common variant, evaluates the gradient not at $\theta_t$ but at the point momentum was already about to carry you to ($\theta_t - \eta\beta v_{t-1}$) — a small lookahead correction that lets the optimizer react to the slope it's about to encounter rather than the one it just left. It changes where the gradient is measured, not the core idea of accumulating a running average.
 
+$$v_t = \beta v_{t-1} + (1-\beta)\, g\!\left(\theta_t - \eta\beta v_{t-1}\right) \qquad \theta_{t+1} = \theta_t - \eta v_t$$
+
+**Worked example.** To see the lookahead actually change something, use a real gradient function this time instead of arbitrary given values — $g(\theta) = 2\theta$ (the gradient of the steep $y$-axis of the ravine from [Section 4](#4-trajectories-and-numbers), where curvature is 2) — starting at $\theta_0 = 2.4$, $v_{-1}=0$, $\beta=0.9$, $\eta=0.4$ (deliberately large, to make the overshoot visible in three steps):
+
+Standard momentum evaluates the gradient at $\theta_t$ itself every step:
+
+$$\theta_1 = 2.208 \qquad \theta_2 = 1.859 \qquad \theta_3 = 1.395$$
+
+Nesterov evaluates the gradient at the lookahead point $\theta_t - \eta\beta v_{t-1}$ instead — identical to standard momentum on step 1 (since $v_{-1}=0$, there's nothing to look ahead from yet), then diverging:
+
+$$\text{step 2 lookahead} = 2.208 - 0.4(0.9)(0.48) = 2.035 \;\to\; g = 4.070 \;(\text{vs. } g(2.208)=4.416 \text{ for standard momentum})$$
+
+$$\theta_1 = 2.208 \qquad \theta_2 = 1.872 \qquad \theta_3 = 1.445$$
+
+Because $g(\theta)=2\theta$ is shrinking as $\theta$ falls toward the minimum, evaluating it at the *lookahead* point — which has already moved further toward zero than $\theta_t$ has — measures a smaller gradient than evaluating it at $\theta_t$ itself. That smaller gradient feeds into $v_t$, producing a gentler update: Nesterov's $\theta_3=1.445$ sits closer to standard momentum's $\theta_2=1.859$ than to its overshoot-prone $\theta_3=1.395$. The correction is small per step, but it's exactly the "sense the slope is about to ease off, and don't over-commit" behavior the lookahead is designed to produce.
+
 ### Adagrad *(Adaptive Gradient, 2011)*
 
 **Intuition first.** Instead of one learning rate for every parameter, give each parameter its own, and shrink it in proportion to how much that specific parameter has moved historically — a parameter with a long history of large gradients has already "used up" some of its budget and gets throttled; one that's barely been touched keeps its full step size.
@@ -162,6 +178,24 @@ With AdamW and $\lambda = 0.01$, an extra $-\eta\lambda\theta_t = -0.1 \times 0.
 
 Every optimizer above treats a weight matrix as a flat bag of independent scalars — each entry gets its own $m$ and $v$, updated with no awareness that the other entries in the same matrix even exist. **Muon**, used for the transformer weight matrices in some recent training recipes (with AdamW kept for embeddings and scalar parameters), instead orthogonalizes the gradient *matrix* as a whole via a Newton-Schulz iteration before applying it — an attempt to remove redundancy between highly correlated gradient directions within a matrix, something no per-scalar method can see. It's a fundamentally different axis of improvement — from *per-parameter* adaptivity to *per-matrix* structure — and is covered in depth in [`training-stability/muon-optimizer.md`](training-stability/muon-optimizer.md).
 
+### LARS and LAMB *(Layer-wise Adaptive Rate Scaling, 2017 / 2019)*
+
+**Intuition first.** Adagrad, RMSprop, and Adam all adapt the learning rate *per parameter*. LARS and LAMB adapt it one level up, *per layer*: before applying an update, compare the size of the layer's weights to the size of the update it's about to receive, and rescale so the update is always a sensible fraction of the weights it's changing — a layer with large weights can safely absorb a larger absolute update than a layer with small weights, and a single global $\eta$ has no way to know that.
+
+$$r_l = \frac{\lVert \theta_l \rVert}{\lVert u_l \rVert} \qquad \theta_l \leftarrow \theta_l - \eta\, r_l\, u_l$$
+
+where $u_l$ is whatever the base optimizer would have applied to layer $l$ — the raw (weight-decayed) gradient for **LARS**, which layers this trust ratio on top of SGD+momentum, or Adam's bias-corrected $\hat m/(\sqrt{\hat v}+\epsilon)$ term for **LAMB**, which layers it on top of Adam. $\lVert \theta_l \rVert$ and $\lVert u_l \rVert$ are computed once per layer (not per scalar), so every parameter within a layer shares the same trust ratio $r_l$.
+
+The problem this solves is specific to **large-batch training**: doubling the batch size halves gradient noise, which tempts scaling up $\eta$ to match — but a single global $\eta$ large enough to be efficient for a layer with big weights can be catastrophically large for a layer with small ones, and vice versa. The trust ratio removes that mismatch layer by layer, which is what let LARS and LAMB train ResNet-50 and BERT, respectively, at batch sizes in the tens of thousands without the accuracy collapse a naively-scaled learning rate would cause.
+
+**Worked example.** Two layers in the same network, same global $\eta = 0.001$, same base-optimizer update norm $\lVert u_l \rVert = 2.0$, but very different weight norms — a large, mature layer and a small, newly-initialized one:
+
+$$r_{\text{large}} = \frac{10.0}{2.0} = 5.0 \qquad r_{\text{small}} = \frac{0.5}{2.0} = 0.25$$
+
+$$\text{effective step}_{\text{large}} = \eta \, r_{\text{large}} = 0.001 \times 5.0 = 0.005 \qquad \text{effective step}_{\text{small}} = \eta \, r_{\text{small}} = 0.001 \times 0.25 = 0.00025$$
+
+Same raw update magnitude, same global learning rate — but the large layer ends up taking a step 20x bigger than the small layer, purely because the trust ratio scales each layer's step to match its own weight norm. Without this, one global $\eta$ would have applied the identical $0.001 \times 2.0$ step to both, which is proportionally enormous for the small layer and proportionally tiny for the large one.
+
 ### Use cases at a glance
 
 *Condensed from the "Intuition first" lines above.*
@@ -172,6 +206,7 @@ Every optimizer above treats a weight matrix as a flat bag of independent scalar
 | Adagrad | Sparse features / sparse gradients (rare tokens, rare categories) | Early large-scale linear models, sparse embeddings |
 | RMSprop | Non-stationary objectives, RNN training | Early deep RNN / LSTM training recipes |
 | Adam / AdamW | Default for transformer pretraining and fine-tuning | GPT, BERT, Llama, essentially all modern LLM training |
+| LARS / LAMB | Very large batch sizes, where a single global learning rate becomes unstable across layers | LARS: large-batch ResNet-50; LAMB: large-batch BERT pretraining |
 | Muon | Transformer weight matrices specifically, alongside AdamW for the rest | Recent open-weight LLM training recipes |
 
 ### Pros and cons at a glance
@@ -185,6 +220,7 @@ Every optimizer above treats a weight matrix as a flat bag of independent scalar
 | Adagrad | Per-parameter adaptivity; excels on sparse gradients | Effective learning rate monotonically decays to zero — stalls on long training runs |
 | RMSprop | Fixes Adagrad's decay-to-zero problem; adapts to recent gradient scale | No momentum term by default; needs its own tuned decay rate |
 | Adam / AdamW | Combines momentum and adaptivity; forgiving defaults across architectures; AdamW cleanly separates decay from adaptive scaling | Stores two extra buffers per parameter (memory cost); can generalize slightly worse than well-tuned SGD in some vision settings |
+| LARS / LAMB | Enables stable training at very large batch sizes; trust ratio removes the single-learning-rate mismatch across layers | Adds a per-layer norm computation each step; benefit is small or absent at ordinary batch sizes |
 | Muon | Removes redundancy within a weight matrix that per-scalar methods can't see | Newer, less battle-tested; needs AdamW alongside it for non-matrix parameters; extra Newton-Schulz compute per step |
 
 ---
@@ -284,6 +320,7 @@ Warmup exists because early in training, before the running statistics inside mo
 | Adagrad | $\theta - \frac{\eta}{\sqrt{s}+\epsilon} g,\ s\mathrel{+}=g^2$ | 1 buffer | Yes | Great for sparse gradients; decays to zero on long runs |
 | RMSprop | $\theta - \frac{\eta}{\sqrt{s}+\epsilon} g,\ s=\gamma s+(1-\gamma)g^2$ | 1 buffer | Yes | Fixes Adagrad's decay; no built-in momentum |
 | Adam / AdamW | $\theta - \eta\left(\frac{\hat m}{\sqrt{\hat v}+\epsilon} + \lambda\theta\right)$ | 2 buffers | Yes | Forgiving defaults, default for LLM training; doubles/triples optimizer memory |
+| LARS / LAMB | $\theta_l - \eta\, r_l\, u_l,\ r_l=\lVert\theta_l\rVert/\lVert u_l\rVert$ | same as base optimizer + per-layer norms | Per-layer | Stabilizes very large batch training; overhead not worth it at ordinary batch sizes |
 | Muon | Orthogonalized gradient update (matrix-level) | Newton-Schulz iteration, no persistent buffer | Structural, not per-scalar | Exploits matrix structure per-scalar methods can't see; newer, needs AdamW alongside it |
 
 ---
@@ -292,7 +329,7 @@ Warmup exists because early in training, before the running statistics inside mo
 
 - **A gradient is not a step.** Every optimizer's job is converting a local slope into a weight update; the differences between optimizers are entirely in what gets built from the gradient before it's subtracted.
 - **Memory and adaptivity are the two axes that matter.** Momentum adds memory (a running average of the gradient); Adagrad and RMSprop add per-parameter adaptivity (a running statistic of the *squared* gradient); Adam combines both.
-- **The field moved from one-size-fits-all to per-parameter, then from per-parameter to per-matrix.** SGD gives every parameter the same treatment; Adagrad/RMSprop/Adam give each parameter its own effective learning rate; Muon takes a further step by treating a weight matrix as a structured object rather than a bag of independent scalars.
+- **The field moved from one-size-fits-all to per-parameter, then sideways to per-layer and per-matrix.** SGD gives every parameter the same treatment; Adagrad/RMSprop/Adam give each parameter its own effective learning rate; LARS/LAMB rescale by per-*layer* weight-to-update norm ratios to stabilize large-batch training; Muon treats a weight matrix as a structured object rather than a bag of independent scalars. These are largely orthogonal axes — LAMB, for instance, is literally Adam with a LARS-style trust ratio layered on top.
 - **Adagrad's flaw and RMSprop's fix are the same mechanism in miniature.** A running *sum* of squared gradients only grows, so the effective learning rate only shrinks; swapping it for a running *average* gives the same adaptivity without the one-way decay.
 - **AdamW is a small formula change with outsized practical impact.** Decoupling weight decay from the adaptive gradient scaling removed an accidental interaction nobody had intended, and is the specific reason AdamW rather than plain Adam is the default in modern LLM training recipes.
 - **A better optimizer is not a substitute for a better learning-rate schedule, a better architecture, or a working eval loop** — it only controls how efficiently the loss goes down, not whether the loss landscape or the training signal feeding it are sound to begin with.
@@ -308,6 +345,10 @@ Warmup exists because early in training, before the running statistics inside mo
 - **"Adaptive Subgradient Methods for Online Learning and Stochastic Optimization"** (Duchi, Hazan & Singer, 2011) — the paper that introduced Adagrad and its per-parameter adaptive learning rate: jmlr.org/papers/v12/duchi11a.html
 
 - **"On the Importance of Initialization and Momentum in Deep Learning"** (Sutskever, Martens, Dahl & Hinton, 2013) — the paper that established momentum (including Nesterov's variant) as a practical necessity for training deep networks: proceedings.mlr.press/v28/sutskever13.html
+
+- **"Large Batch Training of Convolutional Networks"** (You, Gitman & Ginsburg, 2017) — the paper that introduced LARS and its per-layer trust ratio, enabling stable ResNet-50 training at batch sizes up to 32K: arxiv.org/abs/1708.03888
+
+- **"Large Batch Optimization for Deep Learning: Training BERT in 76 Minutes"** (You et al., 2019) — the paper that introduced LAMB, layering LARS's trust ratio on top of Adam to scale BERT pretraining to batch sizes of 32K–64K: arxiv.org/abs/1904.00962
 
 - **[`training-stability/muon-optimizer.md`](training-stability/muon-optimizer.md)** — this repository's own deep dive into Muon's Newton-Schulz orthogonalization and why it's paired with AdamW rather than replacing it outright.
 

@@ -1,0 +1,34 @@
+<svg viewBox="0 0 640 260" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<rect x="0" y="0" width="640" height="260" fill="#fffef9"/>
+<defs>
+  <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 Z" fill="#1c201f4a"/>
+  </marker>
+</defs>
+<text x="24" y="26" font-size="14" fill="#1c201f" font-weight="700" font-family="Georgia,ui-serif,serif">InfoNCE / contrastive loss</text>
+<text x="616" y="26" font-size="10.5" fill="#565f5b" text-anchor="end">one positive, many negatives, per anchor</text>
+<rect x="24" y="106" width="84" height="48" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="66.0" y="126.0" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">z_i</text>
+<text x="66.0" y="142.0" font-size="10" fill="#565f5b" text-anchor="middle">anchor</text>
+<line x1="108" y1="118" x2="156" y2="70" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="108" y1="142" x2="156" y2="190" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="164" y="46" width="112" height="44" rx="3" fill="#f2efe6" stroke="#1f6e5f" stroke-width="1.6"/>
+<text x="220.0" y="66.0" font-size="12" fill="#1f6e5f" text-anchor="middle" font-weight="600">z_j (positive)</text>
+<text x="220.0" y="82.0" font-size="10" fill="#565f5b" text-anchor="middle">matching pair</text>
+<rect x="164" y="168" width="112" height="44" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="220.0" y="188.0" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">z_k  (k=1..N)</text>
+<text x="220.0" y="204.0" font-size="10" fill="#565f5b" text-anchor="middle">negatives, rest of batch</text>
+<line x1="276" y1="68" x2="330" y2="118" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="276" y1="190" x2="330" y2="138" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="338" y="106" width="132" height="48" rx="3" fill="#f2efe6" stroke="#a8641a" stroke-width="1.4"/>
+<text x="404.0" y="126.0" font-size="12" fill="#a8641a" text-anchor="middle" font-weight="600">sim(z_i,·)/τ</text>
+<text x="404.0" y="142.0" font-size="10" fill="#565f5b" text-anchor="middle">cosine sims, all pairs</text>
+<line x1="470" y1="130" x2="518" y2="130" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<rect x="526" y="106" width="66" height="48" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="559.0" y="126.0" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">softmax</text>
+<text x="559.0" y="142.0" font-size="10" fill="#565f5b" text-anchor="middle">+ CE</text>
+<line x1="592" y1="130" x2="612" y2="130" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<text x="626.0" y="134.0" font-size="13" fill="#1c201f" text-anchor="middle" font-weight="600">L</text>
+<text x="24" y="236" font-size="11" fill="#565f5b">Every other item in the batch stands in for a negative — softmax over similarity scores, then cross-entropy</text>
+<text x="24" y="250" font-size="11" fill="#565f5b">against the true positive's index. Bigger batches mean harder negatives and (usually) a better-trained embedding space.</text>
+</svg>

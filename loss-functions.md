@@ -49,11 +49,13 @@ input x  →  network  →  prediction ŷ  →  loss L(ŷ, y)  →  ∂L/∂ŷ  
                                           target y
 ```
 
-In a modern LLM pipeline, this single point in the diagram is where three genuinely different training regimes plug in the same mechanism with different scalars:
+In a modern model pipeline, this single point in the diagram is where four genuinely different training regimes plug in the same mechanism with different scalars:
 
 **Pretraining** uses categorical cross-entropy on next-token prediction — millions of tiny classification problems (predict the next token from a vocabulary of ~100k) chained across a sequence, averaged into one number per batch.
 
 **Supervised fine-tuning (SFT)** uses the same cross-entropy, just on curated instruction-response pairs instead of raw web text — the loss function doesn't change, only the data distribution feeding it does.
+
+**Contrastive / embedding pretraining** — CLIP, sentence embeddings, self-supervised vision models — uses InfoNCE instead of cross-entropy against a fixed label, because there often is no fixed label, only a notion of which pairs in a batch belong together.
 
 **Preference-based post-training** — RLHF, DPO, GRPO — is where the loss function itself changes shape. Instead of scoring one prediction against one ground-truth target, these losses score *pairs* or *groups* of the model's own completions against each other, which is why they need their own section below rather than fitting the single-input-single-target pattern.
 
@@ -67,7 +69,7 @@ Two separate things ride on the choice of loss function, and it's worth keeping 
 
 ## 3. The functions in active use
 
-Eight loss functions, three eras: the regression classics, the classification workhorses that still run inside every LLM's pretraining loop, and the pairwise preference losses that now do most of the work in post-training.
+Eleven loss functions, three eras: the regression classics, the classification workhorses that still run inside every LLM's pretraining loop, and the comparative losses — contrastive, preference-based — that now do most of the work in representation learning and post-training.
 
 ### Mean Squared Error *(L2 loss, statistics-era–present)*
 
@@ -165,6 +167,28 @@ $$\text{CE}(q, p) = -\log(0.70) = 0.357$$
 
 Only the probability mass the model put on the *correct* class matters — the 0.15, 0.10, and 0.05 assigned to the wrong classes never enter the calculation directly, though they mattered during the softmax normalization that produced 0.70 in the first place.
 
+**A short aside — perplexity.** The number every LLM leaderboard actually quotes isn't cross-entropy directly, it's *perplexity*: $\text{PPL} = e^{\text{CE}}$, the exponential of the average cross-entropy loss over a sequence. It's the same quantity, just rescaled to read as "the model was, on average, as uncertain as if it were choosing uniformly among this many tokens." A perplexity of 1 is a perfect, fully confident model; a perplexity equal to the vocabulary size is a model that has learned nothing and is guessing uniformly. Perplexity is an evaluation metric, not a training loss — the model is still trained by minimizing cross-entropy directly — but it's worth naming here since it's cross-entropy's number in a more legible unit.
+
+### Focal Loss *(2017–present, class-imbalance fix to cross-entropy)*
+
+**Intuition first.** Cross-entropy treats every example's contribution to the loss the same way regardless of how easy it already is — a well-classified example with $p_t = 0.95$ still contributes some gradient. In a dataset dominated by easy negatives (as in object detection, where most of an image is easy-to-classify background and only a few pixels are the hard, rare object), that steady trickle from thousands of easy examples can swamp the signal from the few hard ones. Focal loss adds a modulating factor that down-weights easy, well-classified examples so training spends its gradient budget on the examples the model is actually still getting wrong.
+
+$$\text{FL}(p_t) = -(1-p_t)^\gamma \log(p_t)$$
+
+where $p_t$ is the probability the model assigned to the *true* class (matching the notation from the cross-entropy section above) and $\gamma \ge 0$ is a tunable focusing parameter — $\gamma = 0$ recovers plain cross-entropy exactly.
+
+![Focal loss vs cross-entropy plot, showing the focal curve suppressed near p=1 relative to cross-entropy](loss-functions-assets/focal_vs_bce.svg)
+
+The two curves overlap almost completely for small $p_t$ (hard examples) but diverge sharply as $p_t \to 1$: cross-entropy still charges a small but nonzero loss for a confidently correct prediction, while focal loss's $(1-p_t)^\gamma$ term crushes that same loss toward zero. The bigger $\gamma$ is, the more aggressively easy examples get suppressed — $\gamma=2$ is the value used in the original RetinaNet paper and remains the most common default. This is a targeted fix for a specific failure mode (class imbalance), the same way Huber loss was a targeted fix for MSE's outlier sensitivity — not a universal replacement for cross-entropy, since on a balanced dataset the two behave nearly identically.
+
+**Worked example.** Take $\gamma = 2$ and compare an easy example ($p_t = 0.9$) against a hard one ($p_t = 0.1$):
+
+$$\text{FL}(0.9) = -(1-0.9)^2 \log(0.9) = -(0.01)(-0.105) = 0.0011$$
+
+$$\text{FL}(0.1) = -(1-0.1)^2 \log(0.1) = -(0.81)(-2.303) = 1.865$$
+
+Plain cross-entropy on the same two points gives $0.105$ and $2.303$ respectively — focal loss barely touches the hard example's loss (1.865 vs. 2.303) but crushes the easy example's loss by nearly 100$\times$ (0.0011 vs. 0.105), which is exactly the redistribution of gradient the loss was designed to produce.
+
 ### KL Divergence *(Kullback–Leibler, 1951 information theory → distillation, RLHF)*
 
 **Intuition first.** Where cross-entropy measures how well a predicted distribution $p$ matches a target that's usually a hard one-hot label, KL divergence measures the gap between two full probability distributions — how many extra "bits of surprise" you pay, on average, for using $p$ to describe outcomes that actually follow $q$. It shows up wherever a model needs to stay close to another model's distribution rather than to a single correct answer.
@@ -181,9 +205,33 @@ $$D_{KL}(q\|p) = 0.40\log\frac{0.40}{0.25} + 0.30\log\frac{0.30}{0.25} + 0.20\lo
 
 A small but nonzero number — the two distributions put probability mass in similar places (both peak around categories A/B and C), so the divergence is modest rather than large.
 
+### The comparative losses: InfoNCE, DPO, and GRPO
+
+Every function above scores one prediction against one fixed target. The losses in this final group are built around a different question entirely: not "how close is this output to the right answer," but "how does this output compare to the other candidates it's being judged against" — other items in a batch for InfoNCE, a rejected completion for DPO, a group of sampled completions for GRPO.
+
+#### InfoNCE *(contrastive / noise-contrastive estimation, 2018–present)*
+
+**Intuition first.** Representation-learning models (CLIP matching images to captions, sentence-embedding models, self-supervised vision models) often have no single "correct output" to regress or classify against — the training signal is instead "this image and this caption *belong together*, and this image and every *other* caption in the batch do not." InfoNCE turns that into a classification problem in disguise: treat the one true match as the correct class and every other item in the batch as a wrong class, then run ordinary categorical cross-entropy over similarity scores instead of network logits.
+
+$$\mathcal{L}_{\text{InfoNCE}} = -\log \frac{\exp(\text{sim}(z_i, z_j)/\tau)}{\sum_{k=1}^{N} \exp(\text{sim}(z_i, z_k)/\tau)}$$
+
+![InfoNCE structural diagram: an anchor embedding is compared by cosine similarity against one positive and many negative embeddings from the same batch, the similarities are scaled by a temperature and passed through softmax and cross-entropy](loss-functions-assets/infonce-diagram.svg)
+
+Structurally this *is* categorical cross-entropy from earlier in this article — $\text{sim}(z_i,\cdot)/\tau$ plays the role of the logits, softmax turns them into a probability distribution over "which of these $N$ items is the true match," and the loss is $-\log$ of the probability assigned to the correct one. What's new is where the logits come from: not a learned classification head, but the cosine similarity between two learned embeddings, scaled by a temperature $\tau$ that controls how sharply the softmax distinguishes close negatives from far ones. Because every other example in the batch supplies a free negative, InfoNCE's quality scales with batch size in a way ordinary cross-entropy doesn't — CLIP and similar contrastive-pretraining setups are trained with batch sizes in the tens of thousands specifically because more negatives per anchor makes the comparison harder and the resulting embedding space more discriminative.
+
+**Worked example.** Take an anchor with cosine similarities to one positive and three negatives, $\text{sim} = [0.9\ (\text{positive}),\ 0.2,\ 0.1,\ -0.3]$, and $\tau = 0.1$:
+
+$$\text{sim}/\tau = [9.0,\ 2.0,\ 1.0,\ -3.0]$$
+
+$$\text{softmax} = [0.9987,\ 0.00091,\ 0.00034,\ 0.0000061]$$
+
+$$\mathcal{L}_{\text{InfoNCE}} = -\log(0.9987) = 0.0013$$
+
+A small temperature makes the softmax sharply confident once the positive's similarity is clearly the highest — but drop the positive's similarity to $0.3$ (still the largest, just less dominant) and the loss climbs to $0.409$, showing how sensitive the low-temperature softmax is to the *margin* between the positive and the best negative, not just which one wins.
+
 ### The preference losses: DPO and GRPO
 
-Every function above scores one prediction against one fixed target. The losses that now dominate LLM post-training are built around a different question entirely: not "how close is this output to the right answer" (there often isn't a single right answer for "write a helpful response"), but "does the model prefer the *better* of two of its own candidate outputs."
+The two losses below share InfoNCE's comparative structure but apply it to an LLM's own generated completions rather than to a batch of embeddings — not "how close is this output to the right answer" (there often isn't a single right answer for "write a helpful response"), but "does the model prefer the *better* of two of its own candidate outputs."
 
 ![DPO structural diagram: a chosen and a rejected completion each pass through policy and reference log-probability ratios, the ratios are subtracted, and the difference is pushed through a sigmoid to produce the loss](loss-functions-assets/dpo-diagram.svg)
 
@@ -231,7 +279,9 @@ The two correct completions get pushed toward (positive advantage), the two inco
 | Hinge | Margin-based binary classification | SVMs; margin losses in some GAN discriminators |
 | Binary Cross-Entropy | Binary / multi-label classification | Logistic regression, binary classifiers, sigmoid output heads |
 | Categorical Cross-Entropy | Multi-class classification; LLM next-token prediction | Every LLM's pretraining loop (GPT, Llama, Qwen, etc.), image classifiers |
+| Focal Loss | Classification under severe class imbalance | RetinaNet and other single-stage object detectors |
 | KL Divergence | Distillation; RLHF policy regularization | Knowledge distillation, RLHF reward/policy penalty, VAEs |
+| InfoNCE | Contrastive representation / embedding learning | CLIP, SimCLR, sentence-embedding models |
 | DPO | Preference-based post-training without a reward model | Llama 3, Zephyr, many open-weight instruction-tuned models |
 | GRPO | Group-relative reasoning post-training | DeepSeek-R1, DeepSeekMath |
 
@@ -247,7 +297,9 @@ The two correct completions get pushed toward (positive advantage), the two inco
 | Hinge | Stops penalizing already-confident correct predictions; sparse "support vector" gradients | Not probabilistic — no calibrated confidence output; non-differentiable at the hinge |
 | Binary Cross-Entropy | Probabilistic, well-calibrated; clean gradient (p−y) with sigmoid | Diverges to infinity for confidently wrong predictions on noisy labels |
 | Categorical Cross-Entropy | Standard, well-understood, pairs naturally with softmax | Only penalizes probability on the true class; can encourage overconfidence without label smoothing |
+| Focal Loss | Rebalances gradient toward hard examples; one extra scalar (γ) over cross-entropy | γ is a tuned hyperparameter; little benefit on already-balanced datasets |
 | KL Divergence | Captures full-distribution mismatch, not just one class; principled information-theoretic basis | Asymmetric (order of arguments matters); undefined where p is 0 but q isn't |
+| InfoNCE | No labels needed — learns from structure of the data itself; scales with batch size | Needs large batches (many negatives) to work well; temperature τ is a sensitive hyperparameter |
 | DPO | No reward model or RL loop needed; stable, single-stage training | Needs paired preference data; quality bounded by the reference model and the pairs collected |
 | GRPO | No value network; well-suited to verifiable rewards (math, code) | Needs multiple samples per prompt (higher inference cost during training); reward signal can be sparse |
 
@@ -295,7 +347,7 @@ At this single point, cross-entropy's gradient is **roughly 50 times larger** th
 
 ## 5. A runnable PyTorch comparison
 
-The snippet below applies every loss covered above to the same sample predictions and targets, so the numbers can be compared directly. `nn.MSELoss`, `nn.L1Loss`, `nn.HuberLoss`, `nn.HingeEmbeddingLoss`, `nn.BCELoss`, `nn.CrossEntropyLoss`, and `nn.KLDivLoss` all ship in PyTorch directly; DPO is shown as the small loss function it actually is on top of two models' log-probabilities.
+The snippet below applies every loss covered above to the same sample predictions and targets, so the numbers can be compared directly. `nn.MSELoss`, `nn.L1Loss`, `nn.HuberLoss`, `nn.HingeEmbeddingLoss`, `nn.BCELoss`, `nn.CrossEntropyLoss`, and `nn.KLDivLoss` all ship in PyTorch directly; focal loss, InfoNCE, and DPO are shown as the small functions they actually are on top of those primitives.
 
 ```python
 import torch
@@ -322,6 +374,25 @@ p_true, q_true = F.softmax(torch.tensor([[2.0, 1.0, 0.1]]), dim=-1), \
                   F.softmax(torch.tensor([[1.5, 1.2, 0.3]]), dim=-1)
 print("KL(q || p):", F.kl_div(p_true.log(), q_true, reduction="batchmean").item())
 
+# --- focal loss: reweight cross-entropy by (1 - p_t)^gamma ---
+def focal_loss(logits, target, gamma=2.0):
+    ce = F.cross_entropy(logits, target, reduction="none")
+    p_t = torch.exp(-ce)
+    return ((1 - p_t) ** gamma * ce).mean()
+
+print("Focal loss:", focal_loss(logits, target_class).item())
+
+# --- InfoNCE: cross-entropy over cosine similarities instead of network logits ---
+def info_nce(anchor, positive, negatives, tau=0.1):
+    candidates = torch.cat([positive.unsqueeze(0), negatives], dim=0)  # [1+N, d]
+    sims = F.cosine_similarity(anchor.unsqueeze(0), candidates, dim=-1) / tau
+    return F.cross_entropy(sims.unsqueeze(0), torch.tensor([0]))  # index 0 = positive
+
+anchor = torch.tensor([1.0, 0.0])
+positive = torch.tensor([0.9, 0.1])
+negatives = torch.stack([torch.tensor([0.1, 0.9]), torch.tensor([-1.0, 0.2])])
+print("InfoNCE:", info_nce(anchor, positive, negatives).item())
+
 # --- DPO loss, as it's actually computed on top of a policy and a reference model ---
 def dpo_loss(policy_chosen_logp, policy_rejected_logp,
              ref_chosen_logp, ref_rejected_logp, beta=0.1):
@@ -336,7 +407,7 @@ loss = dpo_loss(
 print("DPO loss:", loss.item())
 ```
 
-Running this makes the shapes concrete: MSE's mean is dragged upward by the single outlier in a way MAE's isn't; the manually computed `-log(p_true)` matches PyTorch's built-in `CrossEntropyLoss` exactly, confirming the softmax-plus-log-loss equivalence described in Section 3; and the DPO loss reduces to a single `logsigmoid` call on a margin computed from four scalar log-probabilities — no reward model, no rollout, in the code.
+Running this makes the shapes concrete: MSE's mean is dragged upward by the single outlier in a way MAE's isn't; the manually computed `-log(p_true)` matches PyTorch's built-in `CrossEntropyLoss` exactly, confirming the softmax-plus-log-loss equivalence described in Section 3; `focal_loss` and `info_nce` both reduce to a couple of lines wrapped around `F.cross_entropy`, underscoring that neither is a new primitive so much as cross-entropy pointed at a different input; and the DPO loss reduces to a single `logsigmoid` call on a margin computed from four scalar log-probabilities — no reward model, no rollout, in the code.
 
 ---
 
@@ -368,7 +439,9 @@ Objectivity requires noting that no loss function is a complete fix, and picking
 | Hinge | $\max(0, 1-m)$ | Margin classifiers, SVMs | Sparse gradient, no calibrated probability |
 | Binary Cross-Entropy | $-[y\log p+(1{-}y)\log(1{-}p)]$ | Binary classification | Clean gradient, diverges on noisy labels |
 | Categorical Cross-Entropy | $-\sum_i q_i\log p_i$ | LLM next-token prediction, multi-class | Standard, but only scores the true class |
+| Focal Loss | $-(1-p_t)^\gamma\log p_t$ | Imbalanced classification, object detection | Suppresses easy examples, adds tuned γ |
 | KL Divergence | $\sum_i q_i\log(q_i/p_i)$ | Distillation, RLHF regularization | Full-distribution, but asymmetric |
+| InfoNCE | $-\log\frac{\exp(\text{sim}_{ij}/\tau)}{\sum_k\exp(\text{sim}_{ik}/\tau)}$ | Contrastive embedding learning | Label-free, but needs large batches |
 | DPO | $-\log\sigma(\beta[\Delta_\theta-\Delta_{\text{ref}}])$ | Preference post-training | No reward model, needs paired data |
 | GRPO | clipped ratio × group-normalized advantage + KL | Reasoning post-training | No value network, needs sampled groups |
 
@@ -377,17 +450,24 @@ Objectivity requires noting that no loss function is a complete fix, and picking
 ## 8. Key takeaways
 
 - **The loss function defines what "wrong" means, not just how wrong.** MSE, MAE, and Huber all measure the same residual but produce meaningfully different trained models because they weight large versus small errors differently.
-- **The field moved from single-target losses to distributional losses to comparative losses.** MSE/MAE score a prediction against one number; cross-entropy/KL score a distribution against a target distribution; DPO/GRPO score one of the model's own outputs against another — each step needed a genuinely different kind of training signal, not just a better curve.
+- **The field moved from single-target losses to distributional losses to comparative losses.** MSE/MAE score a prediction against one number; cross-entropy/KL score a distribution against a target distribution; InfoNCE/DPO/GRPO score one of the model's own outputs against others — each step needed a genuinely different kind of training signal, not just a better curve.
 - **Cross-entropy dominates LLM training because its gradient scales with confidence, not just error.** A confidently wrong prediction gets a dramatically larger corrective gradient than a mildly wrong one — squared error doesn't do this nearly as sharply, which is why cross-entropy, not MSE, trains every major LLM's next-token prediction.
+- **Focal loss and InfoNCE both modify what cross-entropy is computed over, not the underlying mechanism.** Focal loss reweights cross-entropy's terms by how easy each example already is; InfoNCE runs cross-entropy over similarity scores instead of network logits, turning "which embedding matches" into an ordinary classification problem.
 - **DPO and GRPO removed the reward model and the RL loop from post-training, not the underlying idea.** Both still optimize a policy toward higher-reward behavior; they just compute that signal directly from comparisons (pairs for DPO, groups for GRPO) instead of through a learned reward model and PPO.
 - **KL divergence is cross-entropy's generalization to non-degenerate targets**, and shows up throughout LLM training wherever a model needs to stay close to another distribution — a teacher model in distillation, a reference policy in RLHF/GRPO — rather than match a single hard label.
-- **Which loss a training pipeline uses is a legible fingerprint of what stage it's in:** categorical cross-entropy points to pretraining or SFT, a KL penalty alongside a policy-gradient objective points to RLHF or GRPO, and a chosen/rejected pair loss points to DPO-style preference tuning.
+- **Which loss a training pipeline uses is a legible fingerprint of what stage it's in:** categorical cross-entropy points to pretraining or SFT, InfoNCE points to contrastive/embedding pretraining, a KL penalty alongside a policy-gradient objective points to RLHF or GRPO, and a chosen/rejected pair loss points to DPO-style preference tuning.
 
 ---
 
 ## 9. Further reading
 
 - **"A Tutorial on the Cross-Entropy Method"** and the original information-theoretic **Kullback & Leibler, "On Information and Sufficiency"** (1951) — the paper that introduced KL divergence: projecteuclid.org/euclid.aoms/1177729694
+
+- **"Focal Loss for Dense Object Detection"** (Lin et al., 2017) — the RetinaNet paper that introduced focal loss and diagnosed foreground-background class imbalance as the reason single-stage detectors lagged two-stage ones: arxiv.org/abs/1708.02002
+
+- **"Representation Learning with Contrastive Predictive Coding"** (Oord, Li & Vinyals, 2018) — the paper that introduced InfoNCE and framed contrastive learning as noise-contrastive estimation over a batch of negatives: arxiv.org/abs/1807.03748
+
+- **"Learning Transferable Visual Models From Natural Language Supervision"** (Radford et al., 2021) — the CLIP paper, the most widely cited large-scale application of InfoNCE-style contrastive pretraining: arxiv.org/abs/2103.00020
 
 - **"Direct Preference Optimization: Your Language Model is Secretly a Reward Model"** (Rafailov et al., 2023) — the paper that derived DPO's closed-form loss from the RLHF objective, eliminating the separate reward model and PPO loop: arxiv.org/abs/2305.18290
 
