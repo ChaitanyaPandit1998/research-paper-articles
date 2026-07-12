@@ -461,7 +461,7 @@ Objectivity requires noting that no loss function is a complete fix, and picking
 
 ## 9. Further reading
 
-- **"A Tutorial on the Cross-Entropy Method"** and the original information-theoretic **Kullback & Leibler, "On Information and Sufficiency"** (1951) — the paper that introduced KL divergence: projecteuclid.org/euclid.aoms/1177729694
+- **"On Information and Sufficiency"** (Kullback & Leibler, 1951) — the original information-theoretic paper that introduced KL divergence: projecteuclid.org/journals/annals-of-mathematical-statistics/volume-22/issue-1/On-Information-and-Sufficiency/10.1214/aoms/1177729694.full
 
 - **"Focal Loss for Dense Object Detection"** (Lin et al., 2017) — the RetinaNet paper that introduced focal loss and diagnosed foreground-background class imbalance as the reason single-stage detectors lagged two-stage ones: arxiv.org/abs/1708.02002
 
@@ -475,7 +475,7 @@ Objectivity requires noting that no loss function is a complete fix, and picking
 
 - **"Training language models to follow instructions with human feedback"** (Ouyang et al., 2022) — the InstructGPT paper establishing the reward-model-plus-PPO RLHF pipeline that DPO and GRPO were built to simplify: arxiv.org/abs/2203.02155
 
-- **"Robust Estimation of a Location Parameter"** (Huber, 1964) — the original paper introducing what's now called Huber loss, from robust statistics rather than deep learning: projecteuclid.org/euclid.aoms/1177703732
+- **"Robust Estimation of a Location Parameter"** (Huber, 1964) — the original paper introducing what's now called Huber loss, from robust statistics rather than deep learning: projecteuclid.org/journals/annals-of-mathematical-statistics/volume-35/issue-1/Robust-Estimation-of-a-Location-Parameter/10.1214/aoms/1177703732.full
 
 ---
 

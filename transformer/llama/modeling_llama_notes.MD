@@ -2,6 +2,8 @@
 
 Reminder of the big picture (see `NOTES.md`): LLaMA has no modular file — this *is* the original, self-contained implementation that Gemma and friends modularize against. Below is what each piece does, in plain terms.
 
+Each section below includes a **Shapes** note using the concrete Llama 3 8B example from `TensorShapes.md`: `B`=2, `S`=512, `H`=4096, `n_heads`=32, `n_kv_heads`=8, `head_dim`=128, `n_kv_groups`=4, `intermediate_size`=14336, `vocab_size`=128256. See that file for the full end-to-end trace.
+
 ---
 
 ## `LlamaRMSNorm`
@@ -26,6 +28,18 @@ class LlamaRMSNorm(nn.Module):
 **Init:** `weight` starts at all-ones, so at initialization the norm is `1 * normalized_x` — a clean identity scale. (Contrast with Gemma's `(1 + weight)` parameterization, where `weight` starts at zero — see `../gemma/modular_gemma_notes.MD`.)
 
 **`@use_kernel_forward_from_hub("RMSNorm")` decorator:** lets this class transparently swap in a faster, hardware-optimized RMSNorm kernel from the Hub (e.g. a fused CUDA kernel) when available, falling back to this plain PyTorch implementation otherwise.
+
+**Shapes:**
+```
+input   [B, S, H]        = [2, 512, 4096]
+variance = pow(2).mean(-1, keepdim=True)
+        [B, S, 1]        = [2, 512, 1]      ← reduces over H, keepdim so it still broadcasts against H
+x * rsqrt(variance+eps)
+        [B, S, H]        = [2, 512, 4096]   ← [2,512,1] broadcasts back across the H dim it collapsed
+weight  [H]              = [4096]           ← broadcasts over the leading B, S dims
+output  [B, S, H]         = [2, 512, 4096]  ← same shape as input; norm never changes shape, only rescales
+```
+Input and output shape are identical because RMSNorm is a per-token rescaling, not a projection — every one of the `H` features in a token's vector is divided by the same scalar (that token's RMS magnitude) and then scaled by the per-feature `weight`, so no dimension is added, removed, or resized.
 
 ---
 
@@ -60,6 +74,22 @@ cos, sin = emb.cos() * attention_scaling, emb.sin() * attention_scaling
 ```
 Computed in forced `float32` (`maybe_autocast(..., enabled=False)`) regardless of the model's working dtype, then cast back down — RoPE angles are precision-sensitive (small errors compound over long sequences), so this avoids doing the trig in lower precision.
 
+**Shapes:**
+```
+inv_freq                 [head_dim/2]         = [64]          ← one frequency per (2D-rotation) pair of dims
+inv_freq_expanded        [B, head_dim/2, 1]   = [2, 64, 1]    ← reshaped for a batched matmul
+position_ids_expanded    [B, 1, S]            = [2, 1, 512]
+
+freqs = inv_freq_expanded @ position_ids_expanded
+                          [B, head_dim/2, S]   = [2, 64, 512]  ← outer product: every position × every frequency
+freqs.transpose(1, 2)    [B, S, head_dim/2]    = [2, 512, 64]  ← puts S back as the "sequence" axis, matching hidden_states layout
+
+emb = cat(freqs, freqs, dim=-1)
+                          [B, S, head_dim]     = [2, 512, 128] ← duplicated so cos/sin have one value per *dim*, not per pair (rotate_half consumes the two halves as a matched pair)
+cos, sin                  [B, S, head_dim]     = [2, 512, 128]
+```
+`head_dim/2` (not `head_dim`) frequencies exist because RoPE treats every consecutive pair of dimensions as one 2D vector to rotate — doubling back to `head_dim` via `cat` just gives each of the two paired dimensions its own (identical) angle to read from during `rotate_half`.
+
 ---
 
 ## `rotate_half` / `apply_rotary_pos_emb`
@@ -82,6 +112,18 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
 
 **`@use_kernel_func_from_hub("rotary_pos_emb")`:** same Hub-kernel-swap pattern as RMSNorm — lets a fused kernel replace this when available.
 
+**Shapes:**
+```
+q                         [B, n_heads,    S, head_dim]  = [2, 32, 512, 128]
+k                         [B, n_kv_heads, S, head_dim]  = [2,  8, 512, 128]
+cos, sin (before unsqueeze) [B, S, head_dim]            = [2, 512, 128]
+cos, sin.unsqueeze(1)       [B, 1, S, head_dim]          = [2, 1, 512, 128]   ← inserted dim broadcasts over the heads axis (dim=1) in both q and k, since every head at a given position uses the same rotation angles
+q_embed = q*cos + rotate_half(q)*sin
+                          [2, 32, 512, 128]    ← shape unchanged: rotation only mixes values *within* each head_dim pair, never changes tensor rank/size
+k_embed                  [2,  8, 512, 128]    ← same for k, just fewer heads
+```
+`q` and `k` keep different head counts (32 vs 8) all the way through RoPE — RoPE is applied per-head independently, so it doesn't care that Q has more heads than K/V; that mismatch is only resolved later by `repeat_kv`.
+
 ---
 
 ## `LlamaMLP`
@@ -101,6 +143,15 @@ class LlamaMLP(nn.Module):
 
 **What it does:** SwiGLU-style gated feed-forward block. `gate_proj(x)` passes through `act_fn` (SiLU by default) to produce a *gate* signal; `up_proj(x)` produces the actual content; they're multiplied elementwise (the "gating"), then `down_proj` projects back down to `hidden_size`. This gated structure (vs. a plain two-layer MLP) is what most modern LLMs use instead of GPT-2-style `Linear → GELU → Linear`.
 
+**Shapes:**
+```
+x                          [B, S, H]                = [2, 512, 4096]
+gate_proj(x), up_proj(x)   [B, S, intermediate_size] = [2, 512, 14336]  ← expand to a wider intermediate space so the elementwise gate has room to select/suppress features
+act_fn(gate) * up          [2, 512, 14336]                              ← elementwise, shape unchanged by either op
+down_proj(...)             [B, S, H]                = [2, 512, 4096]    ← projects back to hidden_size so the block's output can be added to the residual stream
+```
+`intermediate_size` (14336, ~3.5×`H`) is wider than `H` because the gating throws away roughly half the projected capacity (SiLU(gate) acts as a soft mask on `up`) — the expand-then-contract shape is what gives the gated MLP room to be *selective* while still returning something residual-addable.
+
 ---
 
 ## `repeat_kv`
@@ -115,6 +166,17 @@ def repeat_kv(hidden_states, n_rep):
 ```
 
 **What it does:** for Grouped-Query Attention, duplicates each K/V head `n_rep` times so the head count matches the (larger) number of query heads, without actually copying memory until the final `reshape` (the `expand` step is a zero-copy broadcast view). See `NOTES.md` for the full GQA explanation. No-ops when `n_rep == 1` (no GQA).
+
+**Shapes:**
+```
+n_rep = n_heads / n_kv_heads = 32 / 8 = 4
+
+input                    [B, n_kv_heads, S, head_dim]              = [2,  8, 512, 128]
+[:, :, None, :, :]       [B, n_kv_heads, 1, S, head_dim]            = [2,  8, 1, 512, 128]   ← inserts a broadcast axis to repeat along
+.expand(..., n_rep, ...) [B, n_kv_heads, n_rep, S, head_dim]        = [2,  8, 4, 512, 128]    ← zero-copy view, each KV head virtually duplicated 4×
+.reshape(...)            [B, n_kv_heads*n_rep, S, head_dim]         = [2, 32, 512, 128]        ← merges (kv_heads, n_rep) into one heads axis matching n_heads
+```
+The output head count equals `n_heads` (not `n_kv_heads`) because attention needs one K/V per Q head to take a dot product — GQA saves memory by storing/computing fewer *distinct* K/V heads, then cheaply re-broadcasting them here just before the matmul, rather than ever materializing 32 independent K/V heads.
 
 ---
 
@@ -134,6 +196,26 @@ def eager_attention_forward(module, query, key, value, attention_mask, scaling, 
 ```
 
 **What it does:** the textbook scaled dot-product attention, written in plain PyTorch (no fused kernel). `repeat_kv` happens first to expand K/V to match Q's head count (GQA). Softmax is forced to `float32` for stability, then cast back. This is the fallback path — `ALL_ATTENTION_FUNCTIONS.get_interface(...)` will swap in a faster backend (SDPA, FlashAttention, FlexAttention) when `config._attn_implementation` requests one; this function exists as the simple, always-correct reference implementation.
+
+**Shapes:**
+```
+query                      [B, n_heads, S, head_dim]        = [2, 32, 512, 128]
+key_states, value_states   [B, n_heads, S, head_dim]        = [2, 32, 512, 128]   ← post repeat_kv, now matches query's head count
+
+attn_weights = query @ key_states.transpose(2,3) * scaling
+   [2, 32, 512, 128] @ [2, 32, 128, 512]  →  [B, n_heads, S, S] = [2, 32, 512, 512]
+   ← S×S because every query position needs a similarity score against every key position
+
++ attention_mask           [B, 1, S, S]      = [2, 1, 512, 512]  ← the 1 broadcasts over all 32 heads: masking is per-position, identical across heads
+softmax(dim=-1)            [2, 32, 512, 512] ← normalized over the *last* dim (keys) so each query's attention weights over all keys sum to 1
+
+attn_output = attn_weights @ value_states
+   [2, 32, 512, 512] @ [2, 32, 512, 128]  →  [B, n_heads, S, head_dim] = [2, 32, 512, 128]
+   ← weighted sum over keys collapses the S(keys) dim, leaving one head_dim vector per query position, per head
+
+.transpose(1, 2)           [B, S, n_heads, head_dim] = [2, 512, 32, 128]  ← moves heads next to head_dim so they can be flattened into a single hidden_size vector next
+```
+`scaling = head_dim ** -0.5` counteracts the dot product's variance growing with `head_dim` (128 summed terms) — without it, softmax inputs would grow large and saturate into near-one-hot attention regardless of how informative the actual similarities are.
 
 ---
 
@@ -164,6 +246,35 @@ class LlamaAttention(nn.Module):
 
 **`is_causal = True`:** unlike Gemma, LLaMA has no bidirectional-attention switch — it's always autoregressive (causal masking only).
 
+**Shapes:**
+```
+hidden_states              [B, S, H]                       = [2, 512, 4096]
+
+q_proj: Linear(H → n_heads*head_dim)     = Linear(4096 → 4096)
+k_proj: Linear(H → n_kv_heads*head_dim)  = Linear(4096 → 1024)
+v_proj: Linear(H → n_kv_heads*head_dim)  = Linear(4096 → 1024)
+
+hidden_states → q_proj →  [B, S, n_heads*head_dim]    = [2, 512, 4096]
+              → k_proj →  [B, S, n_kv_heads*head_dim] = [2, 512, 1024]
+              → v_proj →  [B, S, n_kv_heads*head_dim] = [2, 512, 1024]
+   ← k/v_proj output 4× fewer features than q_proj because n_kv_heads (8) < n_heads (32); this is where GQA's memory savings actually live (smaller weight matrices ⇒ smaller K/V cache), not just in repeat_kv's runtime broadcast
+
+reshape + transpose (heads onto dim 1):
+  query_states  [B, n_heads,    S, head_dim] = [2, 32, 512, 128]
+  key_states    [B, n_kv_heads, S, head_dim] = [2,  8, 512, 128]
+  value_states  [B, n_kv_heads, S, head_dim] = [2,  8, 512, 128]
+   ← heads moved to dim 1 (ahead of S) so attention can batch-matmul over (B, heads) as independent "batch" dims while doing S×S attention on the remaining two
+
+after apply_rotary_pos_emb: q/k shapes unchanged (rotation only, see above)
+after repeat_kv: key/value_states become [2, 32, 512, 128] (matches query heads)
+after attention_interface: attn_output  [B, S, n_heads, head_dim] = [2, 512, 32, 128]
+
+reshape to merge heads:      [2, 512, 32, 128] → [B, S, n_heads*head_dim] = [2, 512, 4096]
+o_proj: Linear(n_heads*head_dim → H) = Linear(4096 → 4096)
+                              [2, 512, 4096]  →  [2, 512, 4096]
+```
+`o_proj` maps back to exactly `H` so the attention block's output can be added to the residual stream (`residual + attn_output`), which requires identical shapes.
+
 ---
 
 ## `LlamaDecoderLayer`
@@ -190,6 +301,19 @@ class LlamaDecoderLayer(GradientCheckpointingLayer):
 **What it does:** one transformer block, **pre-norm** style (normalize *before* the sublayer, not after) — `input_layernorm` runs before attention, `post_attention_layernorm` runs before the MLP (its name describes its *position* — "after attention, before MLP" — not that it normalizes attention's output in-place). Two residual connections, one around each sublayer. This pre-norm + residual pattern is what makes very deep transformers trainable without vanishing/exploding gradients.
 
 **`GradientCheckpointingLayer` base class:** lets this layer's forward pass be wrapped in PyTorch's gradient checkpointing automatically (recompute activations during backward instead of storing them) when `gradient_checkpointing=True` — trades compute for memory during training.
+
+**Shapes:**
+```
+input hidden_states   [B, S, H] = [2, 512, 4096]
+→ input_layernorm     [2, 512, 4096]                (shape-preserving, see LlamaRMSNorm)
+→ self_attn           [2, 512, 4096]                (shape-preserving end-to-end, see LlamaAttention)
+→ residual add        [2, 512, 4096] + [2, 512, 4096] = [2, 512, 4096]
+→ post_attention_layernorm  [2, 512, 4096]           (shape-preserving)
+→ mlp                 [2, 512, 4096]                 (expands to 14336 internally, contracts back — see LlamaMLP)
+→ residual add        [2, 512, 4096] + [2, 512, 4096] = [2, 512, 4096]
+output hidden_states  [2, 512, 4096]
+```
+Every sublayer here is shape-preserving on the outside (`[B, S, H] → [B, S, H]`) *by construction* — both residual adds require matching shapes, so `H` in must equal `H` out at every step, which is exactly why `o_proj` and `down_proj` project back to `hidden_size` rather than leaving their internal expanded dimension exposed. This is also why the same shape ([2, 512, 4096] for this example) flows unchanged through all 32 stacked layers.
 
 ---
 
@@ -234,6 +358,22 @@ class LlamaModel(LlamaPreTrainedModel):
 
 This is the forward pass Gemma's `GemmaModel.forward` copies almost verbatim (see `../gemma/modular_gemma_notes.MD`) — the only differences there are the scaled embedding lookup and the (optionally) non-causal mask.
 
+**Shapes:**
+```
+input_ids                [B, S]        = [2, 512]         int64 token ids
+embed_tokens(input_ids)   [B, S] → [B, S, H] = [2, 512] → [2, 512, 4096]
+                                                            ← embedding table lookup adds a trailing H-dim feature vector per token
+
+position_ids              [B, S]        = [2, 512]         0..511 per batch row (offset by cache length during generation)
+causal_mask                [B, 1, S, S] = [2, 1, 512, 512]  ← the 1 in dim-1 broadcasts identically over all n_heads (masking doesn't depend on which head)
+cos, sin (from rotary_emb) [B, S, head_dim] = [2, 512, 128] ← computed once here, reused unchanged by all 32 decoder layers (position encoding doesn't vary per layer)
+
+hidden_states through the 32-layer stack: shape invariant at [B, S, H] = [2, 512, 4096] (see LlamaDecoderLayer)
+
+self.norm(hidden_states)   [2, 512, 4096] → [2, 512, 4096]  (shape-preserving RMSNorm)
+```
+`causal_mask` and `cos`/`sin` are computed exactly once per forward call (not per layer) because they depend only on `position_ids`/sequence length, not on any layer's weights — recomputing them 32× would be wasted work for an identical result.
+
 ---
 
 ## `LlamaForCausalLM`
@@ -258,6 +398,28 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
 2. **`logits_to_keep`** — slices hidden states to only the last `logits_to_keep` positions before the `lm_head` projection (or all of them if `0`/unspecified). During generation, you usually only need logits for the *next* token, so this avoids computing a `[batch, full_seq, vocab_size]` tensor when only `[batch, 1, vocab_size]` is needed.
 3. If `labels` are provided, compute the loss via `self.loss_function` (standard cross-entropy for causal LM).
 4. Return `CausalLMOutputWithPast`.
+
+**Shapes:**
+```
+hidden_states (from self.model)   [B, S, H]         = [2, 512, 4096]
+
+hidden_states[:, -logits_to_keep:, :]:
+  training / full pass (logits_to_keep=0):  [2, 512, 4096]   (all positions kept)
+  generation (logits_to_keep=1):            [2,   1, 4096]   (only last position kept)
+
+lm_head: Linear(H → vocab_size, bias=False)  = Linear(4096 → 128256)
+
+logits:
+  full case:        [2, 512, 4096] → [B, S, vocab_size]  = [2, 512, 128256]
+  generation case:  [2,   1, 4096] → [2,   1, 128256]
+
+loss (training only):
+  labels                         [B, S]           = [2, 512]        (input_ids shifted by 1)
+  logits.view(-1, vocab_size)    [B*S, V]         = [1024, 128256]  ← flattens batch and sequence into one axis since cross-entropy scores each token position independently
+  labels.view(-1)                [B*S]            = [1024]
+  → scalar loss
+```
+Slicing to `logits_to_keep` before the `lm_head` matmul (rather than after) is the actual memory/compute saving — projecting `[2, 1, 4096]` instead of `[2, 512, 4096]` through a `4096 → 128256` matrix avoids materializing 511/512 of a `[2, 512, 128256]` tensor that generation would just discard anyway.
 
 ---
 
