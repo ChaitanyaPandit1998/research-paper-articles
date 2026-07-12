@@ -4,6 +4,8 @@ Reminder of the big picture (see `NOTES.md`): LLaMA has no modular file — this
 
 Each section below includes a **Shapes** note using the concrete Llama 3 8B example from `TensorShapes.md`: `B`=2, `S`=512, `H`=4096, `n_heads`=32, `n_kv_heads`=8, `head_dim`=128, `n_kv_groups`=4, `intermediate_size`=14336, `vocab_size`=128256. See that file for the full end-to-end trace.
 
+Several sections also include a small **Diagram** — a shrunk-down worked example (tiny `S`, `head_dim`, head counts) that draws the actual boxes/arrows for a transformation, since a shape-only trace like `[2,512,4096] → [2,32,512,128]` doesn't show *which* numbers moved where.
+
 ---
 
 ## `LlamaRMSNorm`
@@ -90,6 +92,26 @@ cos, sin                  [B, S, head_dim]     = [2, 512, 128]
 ```
 `head_dim/2` (not `head_dim`) frequencies exist because RoPE treats every consecutive pair of dimensions as one 2D vector to rotate — doubling back to `head_dim` via `cat` just gives each of the two paired dimensions its own (identical) angle to read from during `rotate_half`.
 
+**Diagram** (shrunk to `S`=3 positions, `head_dim`=4 → `head_dim/2`=2 frequencies, B=1):
+```
+inv_freq  [head_dim/2]=[2]:        [f0, f1]
+
+positions [S]=[3]:                  [0, 1, 2]
+
+freqs = outer(positions, inv_freq)  [S, head_dim/2] = [3, 2]
+  pos 0: [0*f0, 0*f1]  = [0,    0   ]
+  pos 1: [1*f0, 1*f1]  = [f0,   f1  ]
+  pos 2: [2*f0, 2*f1]  = [2f0,  2f1 ]
+
+emb = cat(freqs, freqs, dim=-1)     [S, head_dim] = [3, 4]
+  pos 0: [0,    0,   0,    0  ]      ← first half = freqs, second half = SAME freqs repeated
+  pos 1: [f0,   f1,  f0,   f1 ]        (so dims (0,2) and (1,3) share angles — the pairs rotate_half will rotate)
+  pos 2: [2f0,  2f1, 2f0,  2f1]
+
+cos, sin = emb.cos(), emb.sin()     [3, 4]  ← elementwise, same shape as emb
+```
+Notice dims `0` and `2` of `emb` are always equal (and likewise `1`/`3`) — that's `cat(freqs, freqs)` at work, and it's exactly the pairing `rotate_half` below relies on.
+
 ---
 
 ## `rotate_half` / `apply_rotary_pos_emb`
@@ -124,6 +146,23 @@ k_embed                  [2,  8, 512, 128]    ← same for k, just fewer heads
 ```
 `q` and `k` keep different head counts (32 vs 8) all the way through RoPE — RoPE is applied per-head independently, so it doesn't care that Q has more heads than K/V; that mismatch is only resolved later by `repeat_kv`.
 
+**Diagram** (one head, one position, `head_dim`=4, so `d/2`=2 pairs: dims (0,2) and (1,3)):
+```
+q            = [ q0,  q1,  q2,  q3 ]
+cos          = [ c0,  c1,  c0,  c1 ]   ← c0/c1 repeated (from cat(freqs,freqs) above)
+sin          = [ s0,  s1,  s0,  s1 ]
+
+x1, x2 = q[..., :2], q[..., 2:]         x1=[q0,q1]   x2=[q2,q3]
+rotate_half(q) = cat(-x2, x1)          = [-q2, -q3,  q0,  q1]
+
+q_embed = q*cos + rotate_half(q)*sin
+  dim0:  q0*c0 + (-q2)*s0   = q0*c0 - q2*s0     ┐
+  dim1:  q1*c1 + (-q3)*s1   = q1*c1 - q3*s1     │  standard 2D rotation:
+  dim2:  q2*c0 +  q0 *s0    = q2*c0 + q0*s0     │  [x']   [cosθ -sinθ] [x]
+  dim3:  q3*c1 +  q1 *s1    = q3*c1 + q1*s1     ┘  [y'] = [sinθ  cosθ] [y]
+```
+Reading dims `(0,2)` together and `(1,3)` together shows each pair getting rotated by the *same* angle (`θ` from `c0,s0` or `c1,s1`) exactly like a 2D rotation matrix — `rotate_half`'s "shift + negate" is just how that matrix multiply gets expressed without ever building the matrix.
+
 ---
 
 ## `LlamaMLP`
@@ -152,6 +191,28 @@ down_proj(...)             [B, S, H]                = [2, 512, 4096]    ← proj
 ```
 `intermediate_size` (14336, ~3.5×`H`) is wider than `H` because the gating throws away roughly half the projected capacity (SiLU(gate) acts as a soft mask on `up`) — the expand-then-contract shape is what gives the gated MLP room to be *selective* while still returning something residual-addable.
 
+**Diagram** (shrunk: `H`=2, `intermediate_size`=3, one token):
+```
+x = [x0, x1]                                          shape [H] = [2]
+
+gate = gate_proj(x)  = [ 2.0, -1.0,  0.1 ]              shape [intermediate_size] = [3]
+up   = up_proj(x)    = [ 3.0,  4.0, -2.0 ]              shape [3]
+
+SiLU(gate) = gate * sigmoid(gate)
+  SiLU(2.0)  ≈ 1.76   (sigmoid(2.0)≈0.88 → mostly "on")
+  SiLU(-1.0) ≈ -0.27   (small negative → mostly "off", slightly negative)
+  SiLU(0.1)  ≈ 0.05   (near zero → mostly "off")
+
+gated = SiLU(gate) * up   (elementwise)
+  = [ 1.76*3.0,  -0.27*4.0,  0.05*-2.0 ]
+  = [ 5.28,      -1.08,      -0.10     ]              shape [3]
+     ↑ channel 0 passes through strongly (gate was very positive)
+                  ↑ channel 1 mostly suppressed toward 0 (gate was negative)
+
+down_proj(gated)  →  shape [H] = [2]                  ← projects the 3 gated channels back down to 2
+```
+Each of the `intermediate_size` channels is independently "opened" or "closed" by its own gate value before `up`'s content passes through — that's the actual gating; `down_proj` then just recombines whatever survived back into an `H`-sized vector.
+
 ---
 
 ## `repeat_kv`
@@ -177,6 +238,24 @@ input                    [B, n_kv_heads, S, head_dim]              = [2,  8, 512
 .reshape(...)            [B, n_kv_heads*n_rep, S, head_dim]         = [2, 32, 512, 128]        ← merges (kv_heads, n_rep) into one heads axis matching n_heads
 ```
 The output head count equals `n_heads` (not `n_kv_heads`) because attention needs one K/V per Q head to take a dot product — GQA saves memory by storing/computing fewer *distinct* K/V heads, then cheaply re-broadcasting them here just before the matmul, rather than ever materializing 32 independent K/V heads.
+
+**Diagram** (shrunk: `n_kv_heads`=2, `n_rep`=3 → `n_heads`=6, B=1, S=1, head_dim=1 so each "head" is just one number):
+```
+input KV heads:            [ K0,  K1 ]                       shape [n_kv_heads] = [2]
+
+[:, None, :] .expand(n_rep):
+  K0 repeated 3×:  [ K0, K0, K0 ]
+  K1 repeated 3×:  [ K1, K1, K1 ]                              shape [n_kv_heads, n_rep] = [2, 3]
+
+.reshape(n_kv_heads * n_rep):
+  [ K0, K0, K0,  K1, K1, K1 ]                                  shape [n_heads] = [6]
+    └──── group 0 ────┘ └──── group 1 ────┘
+
+Q heads this lines up with:
+  [ Q0,  Q1,  Q2,   Q3,  Q4,  Q5 ]
+    all use K0            all use K1
+```
+Query heads `0,1,2` (one "group") all attend against the *same* physical K/V head `K0`; heads `3,4,5` share `K1`. This is the "grouped" in Grouped-Query Attention — `n_kv_groups` (=`n_rep`) query heads per shared K/V head, and `repeat_kv` is what lines the flattened arrays up so a single batched matmul can do all groups at once.
 
 ---
 
@@ -216,6 +295,37 @@ attn_output = attn_weights @ value_states
 .transpose(1, 2)           [B, S, n_heads, head_dim] = [2, 512, 32, 128]  ← moves heads next to head_dim so they can be flattened into a single hidden_size vector next
 ```
 `scaling = head_dim ** -0.5` counteracts the dot product's variance growing with `head_dim` (128 summed terms) — without it, softmax inputs would grow large and saturate into near-one-hot attention regardless of how informative the actual similarities are.
+
+**Diagram** (one head, `S`=3 query/key positions, `head_dim`=2, causal mask applied):
+```
+Q (3 positions × 2 dims)        K (3 positions × 2 dims)
+  q0 = [1, 0]                     k0 = [1, 0]
+  q1 = [0, 1]                     k1 = [0, 1]
+  q2 = [1, 1]                     k2 = [1, 1]
+
+scores = Q @ K.T  (before scaling/mask)     [S,S] = [3,3]
+           k0   k1   k2
+   q0  [  1,    0,   1 ]
+   q1  [  0,    1,   1 ]
+   q2  [  1,    1,   2 ]
+
++ causal_mask (upper triangle → -inf, so query i can't see key j>i):
+           k0     k1     k2
+   q0  [   1,   -inf,  -inf ]     ← q0 can only see k0
+   q1  [   0,     1,   -inf ]     ← q1 can see k0,k1
+   q2  [   1,     1,     2  ]     ← q2 can see everything
+
+softmax(dim=-1)  (row-wise, each row sums to 1):
+   q0  [ 1.0,   0,     0    ]
+   q1  [ 0.27,  0.73,  0    ]
+   q2  [ 0.21,  0.21,  0.58 ]
+
+attn_output = attn_weights @ V   (V rows = value vectors at k0,k1,k2)
+   out(q0) = 1.0*v0                              ← q0 just copies v0 (only visible key)
+   out(q1) = 0.27*v0 + 0.73*v1                    ← weighted blend of v0,v1
+   out(q2) = 0.21*v0 + 0.21*v1 + 0.58*v2           ← blend of all three
+```
+This is the whole mechanism in miniature: `Q@K.T` scores *how relevant* every key is to a query, the causal mask zeroes out (`-inf` → `0` after softmax) any key from the future, softmax turns scores into a weighting that sums to 1 per query, and `attn_weights @ V` uses those weights to blend value vectors — later positions get to blend more keys simply because more of their row survives the mask.
 
 ---
 
@@ -274,6 +384,31 @@ o_proj: Linear(n_heads*head_dim → H) = Linear(4096 → 4096)
                               [2, 512, 4096]  →  [2, 512, 4096]
 ```
 `o_proj` maps back to exactly `H` so the attention block's output can be added to the residual stream (`residual + attn_output`), which requires identical shapes.
+
+**Diagram — splitting `H` into heads** (shrunk: `H`=6, `n_heads`=3, `head_dim`=2, one token):
+```
+q_proj(x)  (one flat vector of length H=6):
+  [ a0, a1,  b0, b1,  c0, c1 ]
+
+view(n_heads, head_dim)  →  [3, 2]:
+  head0: [a0, a1]
+  head1: [b0, b1]
+  head2: [c0, c1]
+   ← q_proj's weight matrix was trained so that *contiguous* chunks of its output
+     become each head's vector; the reshape is "free" (no data movement) only
+     because the chunking already matches this contiguous layout
+```
+**Diagram — merging heads back** (reverse of the above, after attention):
+```
+attn_output per head (S=1 token):
+  head0 output: [x0, x1]
+  head1 output: [y0, y1]
+  head2 output: [z0, z1]
+
+transpose(1,2) puts heads next to head_dim, then reshape flattens them:
+  [ x0, x1,  y0, y1,  z0, z1 ]   ← length n_heads*head_dim = H = 6, ready for o_proj
+```
+Splitting and merging heads is purely a reshape/transpose (no computation) precisely because `q_proj`'s single wide matmul already produces the concatenation of what would've been `n_heads` separate smaller matmuls — reshaping just tells PyTorch to *view* those contiguous chunks as a heads axis instead of computing anything new.
 
 ---
 
