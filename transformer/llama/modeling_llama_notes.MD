@@ -385,6 +385,27 @@ o_proj: Linear(n_heads*head_dim → H) = Linear(4096 → 4096)
 ```
 `o_proj` maps back to exactly `H` so the attention block's output can be added to the residual stream (`residual + attn_output`), which requires identical shapes.
 
+**The reshape line, in detail:**
+```python
+input_shape = hidden_states.shape[:-1]              # (B, S)          = (2, 512)
+hidden_shape = (*input_shape, -1, self.head_dim)    # (2, 512, -1, 128)
+
+query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+key_states   = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+```
+```
+q_proj(x)  [2, 512, 4096]  .view(2, 512, -1, 128)  → PyTorch solves -1 = 4096/128 = 32 → [2, 512, 32, 128]
+k_proj(x)  [2, 512, 1024]  .view(2, 512, -1, 128)  → PyTorch solves -1 = 1024/128 =  8 → [2, 512,  8, 128]
+.transpose(1, 2) on each → [2, 32, 512, 128]  /  [2, 8, 512, 128]
+```
+The same `hidden_shape` tuple reshapes both the wider Q output and the narrower K/V output correctly because `-1` is inferred independently each time from the total element count — that's the whole point of writing it this way instead of hardcoding `32` and `8` separately for `q`/`k`,`v`.
+
+**Why `*input_shape` instead of something more explicit:** `input_shape = hidden_states.shape[:-1]` is `(B, S)` here, but writing `hidden_shape` as `(*input_shape, -1, head_dim)` rather than `(hidden_states.shape[0], hidden_states.shape[1], -1, head_dim)` means the code doesn't hardcode *how many* leading dims there are — it just says "keep whatever leading dims you found, then split the last one into (heads, head_dim)." Alternatives, and why this one won a general codebase:
+- **Hardcode two names** — `batch_size, seq_len = hidden_states.shape[:-1]; hidden_shape = (batch_size, seq_len, -1, head_dim)`. Equivalent for LLaMA today (there are always exactly 2 leading dims), but breaks if a subclass or future variant ever adds an extra leading dim (e.g. an expert axis in an MoE model) — the unpacking would need to change at two call sites instead of zero.
+- **`.reshape(*input_shape, -1, head_dim)` directly, skipping the `view`/`hidden_shape` variable** — functionally identical, just skips naming the intermediate tuple; the codebase keeps `hidden_shape` as a named variable mainly because it's reused for `q`, `k`, and `v` in one place rather than repeated three times.
+- **`view` vs `reshape`** — `view` requires the underlying tensor to already be contiguous in a compatible layout (true here, right after a `Linear`) and fails/copies-silently otherwise; `reshape` would fall back to copying if needed. `view` is used because the code knows the input is contiguous, and a hard failure on an unexpected non-contiguous tensor is preferable to a silent copy.
+- **`einops.rearrange(x, "b s (h d) -> b h s d", d=head_dim)`** — a more declarative one-liner that fuses the `view` and `transpose(1,2)` into a single named-axis expression and reads closer to the math notation, at the cost of an extra dependency; `transformers` avoids `einops` in core model code to keep it dependency-light.
+
 **Diagram — splitting `H` into heads** (shrunk: `H`=6, `n_heads`=3, `head_dim`=2, one token):
 ```
 q_proj(x)  (one flat vector of length H=6):
