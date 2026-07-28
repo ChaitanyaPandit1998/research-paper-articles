@@ -43,7 +43,7 @@ Two matrix multiplications compose into one matrix multiplication. A hundred lin
 
 **Where the collapse breaks.** Insert a non-linear function $f$ between the layers and the algebra above simply doesn't go through anymore:
 
-$$y = W_2\, f(W_1 x + b_1) + b_2$$
+$$y = W_2 f(W_1 x + b_1) + b_2$$
 
 There is no matrix $W'$ for which this equals $W'x + b'$ in general, because $f$ is not a linear operation — you cannot pull it apart into a matrix multiplication. Each additional `linear → f → linear` block therefore genuinely adds representational power that wasn't there before. This is the entire reason activation functions exist; everything else in this article is about which non-linearity to pick and why it matters.
 
@@ -157,7 +157,7 @@ $$\Phi(x) = \frac{1}{2}\left[1 + \text{erf}(x/\sqrt{2})\right]$$
 
 or through the cheaper tanh-based approximation used in most deep learning libraries:
 
-$$\text{GELU}(x) \approx 0.5x\left(1 + \tanh\left[\sqrt{2/\pi}\,\left(x + 0.044715\,x^3\right)\right]\right)$$
+$$\text{GELU}(x) \approx 0.5x\left(1 + \tanh\left[\sqrt{2/\pi}\left(x + 0.044715 x^3\right)\right]\right)$$
 
 ![GELU function plot, showing a smooth curve that dips slightly negative before rising](activation-functions-assets/gelu.svg)
 
@@ -197,19 +197,19 @@ This is a GLU — Gated Linear Unit — and the activation used for the gate $f$
 
 **Intuition first.** Instead of one pathway deciding "how much of myself to let through" (self-gating, as in plain SiLU), SwiGLU splits the work: one projection of the input computes *content*, a second, independent projection computes a *gate* over that content, and the two are multiplied together. It's the difference between a valve that reads its own pressure versus a valve controlled by a separate sensor — the second design can learn a much richer notion of "how much to pass."
 
-$$\text{SwiGLU}(x) = \big(\text{SiLU}(xW) \otimes xV\big)\,W_2$$
+$$\text{SwiGLU}(x) = \big(\text{SiLU}(xW) \otimes xV\big) W_2$$
 
 There's no single fixed "shape" to draw for SwiGLU the way there is for SiLU — it's a function of two independent linear projections of the full input vector, not a 1-D curve of a scalar. What carries over from SiLU is the smoothness and the absence of a hard dead zone; what's added is expressiveness, since the gate and the content are no longer forced to be the same signal. The FFN's hidden dimension is typically shrunk by roughly two-thirds to keep the parameter count comparable to a non-gated FFN, since SwiGLU needs three weight matrices ($W, V, W_2$) instead of two.
 
 **Worked example.** Take a toy input vector $x = [1, -1]$, with tiny $2\times2$ weight matrices $W = \begin{pmatrix}1&1\\1&-1\end{pmatrix}$ and $V = \begin{pmatrix}2&0\\0&2\end{pmatrix}$ (skip $W_2$ by treating it as identity, to isolate the gating step):
 
-$$xW = [1{\times}1 + (-1){\times}1,\ 1{\times}1 + (-1){\times}(-1)] = [0,\ 2]$$
+$$xW = [1{\times}1 + (-1){\times}1, 1{\times}1 + (-1){\times}(-1)] = [0, 2]$$
 
-$$xV = [1{\times}2 + (-1){\times}0,\ 1{\times}0 + (-1){\times}2] = [2,\ -2]$$
+$$xV = [1{\times}2 + (-1){\times}0, 1{\times}0 + (-1){\times}2] = [2, -2]$$
 
-$$\text{SiLU}(xW) = [\text{SiLU}(0),\ \text{SiLU}(2)] = [0,\ 1.7616]$$
+$$\text{SiLU}(xW) = [\text{SiLU}(0), \text{SiLU}(2)] = [0, 1.7616]$$
 
-$$\text{SwiGLU}(x) = \text{SiLU}(xW) \otimes xV = [0 \times 2,\ 1.7616 \times (-2)] = [0,\ -3.5232]$$
+$$\text{SwiGLU}(x) = \text{SiLU}(xW) \otimes xV = [0 \times 2, 1.7616 \times (-2)] = [0, -3.5232]$$
 
 The first output dimension is gated shut entirely ($\text{SiLU}(0)=0$ kills it regardless of what $xV$ was); the second passes through, flipped in sign and scaled, because its gate value was large. This is the mechanism in miniature: the gate decides per-dimension how much of the content survives.
 
@@ -217,15 +217,15 @@ The first output dimension is gated shut entirely ($\text{SiLU}(0)=0$ kills it r
 
 **Intuition first.** Exactly the SwiGLU idea — two independent projections, one gating the other — with GELU standing in for SiLU as the gate. Since GELU and SiLU are near-identical smoothed relatives of ReLU, GeGLU and SwiGLU behave very similarly in practice; the choice between them is closer to a house style than a principled tradeoff.
 
-$$\text{GeGLU}(x) = \big(\text{GELU}(xW) \otimes xV\big)\,W_2$$
+$$\text{GeGLU}(x) = \big(\text{GELU}(xW) \otimes xV\big) W_2$$
 
 Same structural diagram as SwiGLU, same parameter-count consideration, same reason for existing: separating "how much content" from "how much to let through" gives the FFN more room to represent complex per-token functions than a single activation curve can.
 
 **Worked example.** Same $x$, $W$, $V$ as the SwiGLU example above, so the two can be compared directly. Reusing $xW = [0, 2]$ and $xV = [2, -2]$:
 
-$$\text{GELU}(xW) = [\text{GELU}(0),\ \text{GELU}(2)] = [0,\ 1.9546]$$
+$$\text{GELU}(xW) = [\text{GELU}(0), \text{GELU}(2)] = [0, 1.9546]$$
 
-$$\text{GeGLU}(x) = \text{GELU}(xW) \otimes xV = [0 \times 2,\ 1.9546 \times (-2)] = [0,\ -3.9092]$$
+$$\text{GeGLU}(x) = \text{GELU}(xW) \otimes xV = [0 \times 2, 1.9546 \times (-2)] = [0, -3.9092]$$
 
 Nearly the same result as SwiGLU's $[0, -3.5232]$ — the first dimension is gated shut identically, the second differs only because $\text{GELU}(2) = 1.9546$ is slightly larger than $\text{SiLU}(2) = 1.7616$. This is the SwiGLU/GeGLU relationship in one example: same structure, marginally different numbers.
 
