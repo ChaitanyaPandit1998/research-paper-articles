@@ -67,6 +67,17 @@ Two separate things ride on the choice of activation function, and it's worth ke
 
 $$\frac{\partial \mathcal{L}}{\partial x_1} = \frac{\partial \mathcal{L}}{\partial x_L} \prod_{\ell=2}^{L} f'(z_\ell) \cdot W_\ell$$
 
+**In plain language:** this says "how much does the loss change if I nudge the very first layer's input" equals "how much does the loss change at the last layer" times a long chain of multiplications, one per layer in between.
+
+- $\mathcal{L}$ — the loss: a single number scoring how wrong the network's output is.
+- $x_1$ — the input to the first layer; $x_L$ — the input to the last layer. $\partial \mathcal{L}/\partial x_1$ is the gradient the earliest layer actually needs in order to update its weights.
+- $\ell$ — an index running over the layers, from layer 2 up to the last layer $L$ (the Greek letter "ell," not the number 1 — easy to misread in this font).
+- $\prod_{\ell=2}^{L}$ — "multiply together everything that follows, once for each layer from 2 to $L$." It's the multiplicative version of $\sum$ (sigma, for addition): a big running product instead of a running sum.
+- $f'(z_\ell)$ — the *derivative* of the activation function, evaluated at that layer's pre-activation value $z_\ell$. This is the term the rest of the section is about: if it's small, the product shrinks every time it's multiplied in.
+- $W_\ell$ — the weight matrix at layer $\ell$.
+
+So the equation is just the chain rule written out: to find out how a change at the very first layer eventually affects the loss, you walk backward through every layer between them, and at each one you multiply by that layer's activation derivative and its weights. Chain enough small numbers together ($f'(z_\ell) < 1$, as with sigmoid) and the product heads toward zero — that's the vanishing-gradient problem the next paragraph names directly.
+
 If $f'$ is routinely small (as with sigmoid) or exactly zero (as with ReLU on negative inputs), gradients shrink or vanish before they ever reach the early layers, and training stalls. This is not a minor implementation detail — it is the reason the field moved from sigmoid/tanh to ReLU, and later to the smoother, gated variants covered below.
 
 ---
