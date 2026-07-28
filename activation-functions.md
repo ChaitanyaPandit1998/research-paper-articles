@@ -194,6 +194,16 @@ Every function above is a single curve applied to a single number. The gated uni
 This is a GLU — Gated Linear Unit — and the activation used for the gate $f$ is what names the variant. Swap in SiLU and you get **SwiGLU**; swap in GELU and you get **GeGLU**.
 
 > **Notation side note.** The formulas below write elementwise multiplication as $\odot$ (the Hadamard product: multiply two same-shaped vectors position by position). This is deliberately *not* $\otimes$, which conventionally denotes the outer or tensor product — an operation that takes two vectors and produces a matrix, not another vector. Papers and codebases are inconsistent here and sometimes use $\otimes$ loosely to mean elementwise multiplication too, so it's worth checking which one is meant whenever you see it.
+>
+> **Example.** Take $a = [1, 2]$ and $b = [3, 4]$:
+>
+> $$a \odot b = [1{\times}3,\ 2{\times}4] = [3, 8]$$
+>
+> That's a same-shaped vector back out — one number per position. Compare the outer product, which instead builds a full matrix out of every pairwise combination:
+>
+> $$a \otimes b = \begin{pmatrix}1{\times}3 & 1{\times}4\\ 2{\times}3 & 2{\times}4\end{pmatrix} = \begin{pmatrix}3 & 4\\ 6 & 8\end{pmatrix}$$
+>
+> Two length-2 vectors in, a 2×2 matrix out — a different shape of result entirely, which is why $\otimes$ is the wrong symbol for what SwiGLU/GeGLU actually do.
 
 
 
