@@ -193,6 +193,10 @@ Every function above is a single curve applied to a single number. The gated uni
 
 This is a GLU — Gated Linear Unit — and the activation used for the gate $f$ is what names the variant. Swap in SiLU and you get **SwiGLU**; swap in GELU and you get **GeGLU**.
 
+> **Notation side note.** The formulas below write elementwise multiplication as $\odot$ (the Hadamard product: multiply two same-shaped vectors position by position). This is deliberately *not* $\otimes$, which conventionally denotes the outer or tensor product — an operation that takes two vectors and produces a matrix, not another vector. Papers and codebases are inconsistent here and sometimes use $\otimes$ loosely to mean elementwise multiplication too, so it's worth checking which one is meant whenever you see it.
+
+
+
 #### SwiGLU *(gated SiLU, 2020–present)*
 
 **Intuition first.** Instead of one pathway deciding "how much of myself to let through" (self-gating, as in plain SiLU), SwiGLU splits the work: one projection of the input computes *content*, a second, independent projection computes a *gate* over that content, and the two are multiplied together. It's the difference between a valve that reads its own pressure versus a valve controlled by a separate sensor — the second design can learn a much richer notion of "how much to pass."
