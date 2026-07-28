@@ -201,7 +201,9 @@ $$\text{SwiGLU}(x) = \big(\text{SiLU}(xW) \otimes xV\big) W_2$$
 
 There's no single fixed "shape" to draw for SwiGLU the way there is for SiLU — it's a function of two independent linear projections of the full input vector, not a 1-D curve of a scalar. What carries over from SiLU is the smoothness and the absence of a hard dead zone; what's added is expressiveness, since the gate and the content are no longer forced to be the same signal. The FFN's hidden dimension is typically shrunk by roughly two-thirds to keep the parameter count comparable to a non-gated FFN, since SwiGLU needs three weight matrices ($W, V, W_2$) instead of two.
 
-**Worked example.** Take a toy input vector $x = [1, -1]$, with tiny $2\times2$ weight matrices $W = \begin{pmatrix}1&1\\1&-1\end{pmatrix}$ and $V = \begin{pmatrix}2&0\\0&2\end{pmatrix}$ (skip $W_2$ by treating it as identity, to isolate the gating step):
+**Worked example.** Take a toy input vector $x = [1, -1]$, with tiny 2×2 weight matrices (skip $W_2$ by treating it as identity, to isolate the gating step):
+
+$$W = \begin{pmatrix}1 & 1\\ 1 & -1\end{pmatrix} \qquad V = \begin{pmatrix}2 & 0\\ 0 & 2\end{pmatrix}$$
 
 $$xW = [1{\times}1 + (-1){\times}1, 1{\times}1 + (-1){\times}(-1)] = [0, 2]$$
 
