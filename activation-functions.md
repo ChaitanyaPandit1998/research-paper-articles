@@ -197,7 +197,7 @@ This is a GLU — Gated Linear Unit — and the activation used for the gate $f$
 
 **Intuition first.** Instead of one pathway deciding "how much of myself to let through" (self-gating, as in plain SiLU), SwiGLU splits the work: one projection of the input computes *content*, a second, independent projection computes a *gate* over that content, and the two are multiplied together. It's the difference between a valve that reads its own pressure versus a valve controlled by a separate sensor — the second design can learn a much richer notion of "how much to pass."
 
-$$\text{SwiGLU}(x) = \big(\text{SiLU}(xW) \otimes xV\big) W_2$$
+$$\text{SwiGLU}(x) = \big(\text{SiLU}(xW) \odot xV\big) W_2$$
 
 There's no single fixed "shape" to draw for SwiGLU the way there is for SiLU — it's a function of two independent linear projections of the full input vector, not a 1-D curve of a scalar. What carries over from SiLU is the smoothness and the absence of a hard dead zone; what's added is expressiveness, since the gate and the content are no longer forced to be the same signal. The FFN's hidden dimension is typically shrunk by roughly two-thirds to keep the parameter count comparable to a non-gated FFN, since SwiGLU needs three weight matrices ($W, V, W_2$) instead of two.
 
@@ -211,7 +211,7 @@ $$xV = [1{\times}2 + (-1){\times}0, 1{\times}0 + (-1){\times}2] = [2, -2]$$
 
 $$\text{SiLU}(xW) = [\text{SiLU}(0), \text{SiLU}(2)] = [0, 1.7616]$$
 
-$$\text{SwiGLU}(x) = \text{SiLU}(xW) \otimes xV = [0 \times 2, 1.7616 \times (-2)] = [0, -3.5232]$$
+$$\text{SwiGLU}(x) = \text{SiLU}(xW) \odot xV = [0 \times 2, 1.7616 \times (-2)] = [0, -3.5232]$$
 
 The first output dimension is gated shut entirely ($\text{SiLU}(0)=0$ kills it regardless of what $xV$ was); the second passes through, flipped in sign and scaled, because its gate value was large. This is the mechanism in miniature: the gate decides per-dimension how much of the content survives.
 
@@ -219,7 +219,7 @@ The first output dimension is gated shut entirely ($\text{SiLU}(0)=0$ kills it r
 
 **Intuition first.** Exactly the SwiGLU idea — two independent projections, one gating the other — with GELU standing in for SiLU as the gate. Since GELU and SiLU are near-identical smoothed relatives of ReLU, GeGLU and SwiGLU behave very similarly in practice; the choice between them is closer to a house style than a principled tradeoff.
 
-$$\text{GeGLU}(x) = \big(\text{GELU}(xW) \otimes xV\big) W_2$$
+$$\text{GeGLU}(x) = \big(\text{GELU}(xW) \odot xV\big) W_2$$
 
 Same structural diagram as SwiGLU, same parameter-count consideration, same reason for existing: separating "how much content" from "how much to let through" gives the FFN more room to represent complex per-token functions than a single activation curve can.
 
@@ -227,7 +227,7 @@ Same structural diagram as SwiGLU, same parameter-count consideration, same reas
 
 $$\text{GELU}(xW) = [\text{GELU}(0), \text{GELU}(2)] = [0, 1.9546]$$
 
-$$\text{GeGLU}(x) = \text{GELU}(xW) \otimes xV = [0 \times 2, 1.9546 \times (-2)] = [0, -3.9092]$$
+$$\text{GeGLU}(x) = \text{GELU}(xW) \odot xV = [0 \times 2, 1.9546 \times (-2)] = [0, -3.9092]$$
 
 Nearly the same result as SwiGLU's $[0, -3.5232]$ — the first dimension is gated shut identically, the second differs only because $\text{GELU}(2) = 1.9546$ is slightly larger than $\text{SiLU}(2) = 1.7616$. This is the SwiGLU/GeGLU relationship in one example: same structure, marginally different numbers.
 
@@ -385,8 +385,8 @@ Objectivity requires noting that no activation function is a complete fix, and p
 | Leaky ReLU | $x$ if $x{>}0$ else $\alpha x$ | GANs, CNNs prone to dead units | Fixes dying ReLU, adds a tuned constant |
 | GELU | $x\cdot\Phi(x)$ | GPT-2, BERT | Smooth and strong, costlier than ReLU |
 | SiLU / Swish | $x\cdot\sigma(x)$ | Gate for SwiGLU FFNs | Smooth, self-gating, near-GELU cost |
-| SwiGLU | $(\text{SiLU}(xW)\otimes xV)W_2$ | Llama, Mistral, Qwen FFNs | More expressive, three weight matrices |
-| GeGLU | $(\text{GELU}(xW)\otimes xV)W_2$ | Gemma FFNs | Same as SwiGLU, GELU-flavored gate |
+| SwiGLU | $(\text{SiLU}(xW)\odot xV)W_2$ | Llama, Mistral, Qwen FFNs | More expressive, three weight matrices |
+| GeGLU | $(\text{GELU}(xW)\odot xV)W_2$ | Gemma FFNs | Same as SwiGLU, GELU-flavored gate |
 
 ---
 
