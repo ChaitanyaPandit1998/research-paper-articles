@@ -35,6 +35,8 @@ The calculus behind backpropagation is not new — the chain rule dates to Gottf
 
 **The paper that made it stick (1986).** David Rumelhart, Geoffrey Hinton, and Ronald Williams published *"Learning representations by back-propagating errors"* in *Nature* in 1986. It wasn't the first description of the algorithm, but it was the one that demonstrated, clearly and convincingly, that multi-layer networks with hidden units could learn useful internal representations by this method — and it gave the field a name and a rallying point. This is the paper usually credited with popularizing backpropagation, even though the mathematics had been independently rediscovered several times before it.
 
+> **Note.** Backpropagation is a rare case of convergent discovery: control theorists (Kelley, Bryson), an applied mathematician (Linnainmaa), and a behavioral scientist (Werbos) each arrived at essentially the same reverse-mode chain-rule computation from completely different starting problems, years apart, without citing one another. The 1986 paper's real contribution wasn't new math — it was showing that this math was worth using for something the field cared about.
+
 **Why it took so long to matter.** For most of the 1990s and 2000s, backpropagation was known but underused: networks stayed shallow, because deep networks trained this way ran straight into the vanishing-gradient problem (see [Section 7](#7-what-backpropagation-doesnt-solve) and the companion [activation functions article](activation-functions.md), which covers this failure mode directly). It took better activation functions, better initialization schemes, GPUs fast enough to make the matrix multiplications practical at scale, and vastly larger datasets before backpropagation-trained networks began outperforming every hand-engineered alternative. The algorithm itself barely changed in that time — the surrounding infrastructure had to catch up to it.
 
 ---
@@ -51,6 +53,8 @@ That quantity — how sensitive the error is to a small change in one specific w
 
 It's worth being precise about what backpropagation is *not*: it is not the learning algorithm itself, and it does not decide how big a step to take. It only computes gradients. A separate algorithm — an **optimizer** like SGD or Adam — takes those gradients and decides how to actually update the weights (see the companion [optimizers article](optimizers.md) for that half of the story). Backpropagation answers "which direction, and how sensitively"; the optimizer answers "how far to step."
 
+> **Worth remembering.** For a network with $N$ weights, numerical differentiation costs roughly $N$ forward passes to produce one gradient step; backpropagation costs one forward pass plus one backward pass, regardless of $N$. For a billion-parameter model, that's the difference between a training step taking about twice as long as a single forward pass, versus a training step taking on the order of a billion forward passes.
+
 ---
 
 ## 3. The forward pass and the backward pass
@@ -60,6 +64,8 @@ Every training step has two halves, always run in this order.
 ![Computational graph diagram showing the forward pass computing values left to right, and the backward pass computing gradients right to left using the chain rule](backpropagation-assets/computational-graph.svg)
 
 **The forward pass.** The input is pushed through the network's layers in order — linear transformation, activation function, linear transformation, and so on — producing a prediction. That prediction is compared against the true target using a **loss function** (see the companion [loss functions article](loss-functions.md)), producing a single number, $\mathcal{L}$, that scores how wrong the network was. Every intermediate value computed along the way — every $z$ and every $h$ in the diagram above — is cached in memory rather than discarded, because the backward pass needs them.
+
+> **Note.** This caching is exactly why training a model needs far more memory than running it for inference. Inference only ever needs the current layer's output to compute the next one — it can discard everything behind it. Training has to keep every layer's output alive until the backward pass has actually used it. This tradeoff is revisited directly in [Section 7](#7-what-backpropagation-doesnt-solve).
 
 **The backward pass.** Starting from the loss and working backward toward the input, each node in the computational graph computes two things: how much the loss changes with respect to *its own output* (which it receives from the node after it), and how much the loss changes with respect to *its own inputs* (which it computes using its local derivative and passes further back). By the time the backward pass reaches the first layer, every weight in the network has an associated gradient — a signed number saying "increasing this weight slightly would increase the loss by approximately this much."
 
@@ -91,6 +97,8 @@ $$\frac{\partial \mathcal{L}}{\partial x} = \frac{\partial \mathcal{L}}{\partial
 - $\partial y/\partial h$ — the local derivative of the second linear layer, which turns out to just be its weight.
 - $\partial h/\partial z$ — the derivative of the activation function, evaluated at $z$. This is exactly the term covered at length in the [activation functions article](activation-functions.md#2-where-they-live-in-a-network) — small or zero values here are what cause vanishing or dead gradients.
 - $\partial z/\partial x$ — the local derivative of the first linear layer, again just its weight.
+
+> **Notation note.** These are written with $\partial$ (partial derivative) rather than $d$ (ordinary derivative) because in a real network $z$, $h$, and $y$ are typically vectors that each depend on many inputs at once — $\partial \mathcal{L}/\partial z$ means "the sensitivity of $\mathcal{L}$ to $z$, treating every other variable as fixed." The toy chain in this section only has one path from $x$ to $\mathcal{L}$, so ordinary derivatives would technically also work here — but the partial-derivative notation is the one that generalizes to layers with many neurons and many inputs, which is why it's used throughout this article and in every real autograd system.
 
 Each factor is *local* — a node only ever needs to differentiate itself — and the backward pass computes them right to left, reusing the running product at every step instead of recomputing the whole chain from scratch each time. That reuse is the entire computational saving over the naive "nudge one weight, rerun everything" approach from [Section 2](#2-what-problem-does-it-solve).
 
@@ -142,6 +150,8 @@ Finally, the input layer's local derivative, needed for $w_1$:
 
 $$\frac{\partial z}{\partial w_1} = x = 2 \qquad \Rightarrow \qquad \frac{\partial \mathcal{L}}{\partial w_1} = \frac{\partial \mathcal{L}}{\partial z}\cdot\frac{\partial z}{\partial w_1} = -0.05288 \times 2 = -0.10576$$
 
+> **Pattern to notice.** Every step above follows the identical template: `outgoing gradient = incoming gradient × local derivative`. That was true at the output layer, true through the sigmoid, and true at the input layer — the same one-line rule, applied once per node, regardless of whether that node is a linear layer, an activation function, or the loss itself. This is the entire content of backpropagation; a real network just has far more nodes to repeat it at.
+
 **What this hands to the optimizer.** Backpropagation's job stops here: it has produced $\partial \mathcal{L}/\partial w_1 = -0.10576$ and $\partial \mathcal{L}/\partial w_2 = -0.1966$. Both are negative, meaning increasing either weight would *decrease* the loss — which matches the earlier observation that the prediction was too low. An optimizer like plain gradient descent with learning rate $\eta = 0.1$ would then apply:
 
 $$w_1 \leftarrow w_1 - \eta \frac{\partial \mathcal{L}}{\partial w_1} = 0.5 - 0.1\times(-0.10576) = 0.5106$$
@@ -188,13 +198,15 @@ print("dL/dw2:", round(w2.grad.item(), 5))      # -0.19660
 
 `loss.backward()` reproduces exactly the two gradients derived by hand in Section 5 — `-0.10576` for $w_1$ and `-0.19660` for $w_2$ — because it's running the same chain-rule bookkeeping, just automatically and for graphs far too large to differentiate by hand. This is the mechanism underneath every `.backward()` call in every PyTorch training loop, regardless of whether the model has three parameters or three hundred billion.
 
+> **Note.** `requires_grad=True` is what tells PyTorch to actually keep the computational graph around instead of discarding intermediate tensors right after computing them — it's the code-level version of "caching every intermediate value" described in Section 3. Forget to set it (or call `.detach()` partway through) and `.backward()` has nothing left to walk back through for that branch of the graph.
+
 ---
 
 ## 7. What backpropagation doesn't solve
 
 Backpropagation computes gradients correctly and efficiently — but a correct gradient is not the same as a *useful* one, and several well-known training failures live entirely downstream of it.
 
-**It doesn't guarantee the gradient is a good signal.** If the activation functions in a deep network saturate, backpropagation still computes the mathematically correct gradient — it's just that the correct gradient is very close to zero. This is the vanishing-gradient problem, and it's a property of the *functions being differentiated* (see [Section 4](#2-where-they-live-in-a-network) of the activation functions article), not a flaw in the chain-rule bookkeeping itself. Backpropagation faithfully reports "there is almost no signal here" — it doesn't manufacture a better signal.
+**It doesn't guarantee the gradient is a good signal.** If the activation functions in a deep network saturate, backpropagation still computes the mathematically correct gradient — it's just that the correct gradient is very close to zero. This is the vanishing-gradient problem, and it's a property of the *functions being differentiated* (see [Section 2](activation-functions.md#2-where-they-live-in-a-network) of the activation functions article), not a flaw in the chain-rule bookkeeping itself. Backpropagation faithfully reports "there is almost no signal here" — it doesn't manufacture a better signal.
 
 **It doesn't decide how to update weights.** As noted in [Section 2](#2-what-problem-does-it-solve), backpropagation's output is a gradient, full stop. Whether that gradient gets applied directly (plain SGD), smoothed over time (momentum), or rescaled per-parameter (Adam) is an entirely separate decision made by the optimizer — see the companion [optimizers article](optimizers.md).
 
@@ -203,6 +215,8 @@ Backpropagation computes gradients correctly and efficiently — but a correct g
 **Memory, not compute, is often the practical bottleneck.** Because the backward pass needs every intermediate activation from the forward pass, training memory scales with network depth and batch size in a way inference does not. Techniques like gradient checkpointing exist specifically to trade recomputation for memory by deliberately *not* storing every intermediate value — a direct consequence of how backpropagation is structured.
 
 **It's exact, not approximate — but only for the graph you actually built.** A common source of silent bugs is a computational graph that doesn't match the intended math (an operation performed outside `requires_grad` tracking, a detached tensor, a non-differentiable operation used where a differentiable one was needed). Backpropagation will happily and correctly differentiate the graph you gave it — it has no way to know that graph wasn't the one you meant to build.
+
+> **The one thing worth remembering from this section.** Every failure mode listed above is a failure of what backpropagation was *handed* — a saturated activation, a mismatched graph, a bad loss — not a failure of its arithmetic. If gradients look wrong during debugging, the chain rule itself is rarely the place to start looking; the functions and graph feeding it almost always are.
 
 ---
 
@@ -217,6 +231,8 @@ Backpropagation (reverse-mode automatic differentiation applied to a loss functi
 **Feedback alignment and biologically-motivated alternatives.** A line of research (starting with Lillicrap et al., 2016) asks whether the brain could plausibly implement something like backpropagation, since standard backprop requires each layer to know the *exact transpose* of the weights of every layer ahead of it — a symmetry requirement with no obvious biological mechanism. Feedback alignment replaces those exact transposed weights with fixed random matrices and shows the network can still learn, surprisingly. This mostly matters for neuroscience and for niche hardware (analog/neuromorphic chips) where computing exact transposes is expensive — it hasn't displaced standard backpropagation for practical model training, where you don't need biological plausibility and exact gradients are cheap to get anyway.
 
 **None of these have displaced backpropagation for standard deep learning**, precisely because it already hits a rare combination: it's exact (not approximate), and it costs about the same as one extra forward pass regardless of how many parameters the network has. Any alternative that gives up either of those properties has to buy back an enormous amount of value elsewhere to be worth using instead.
+
+> **Note.** It's unusual for an algorithm to be both exact *and* cheap — normally you trade one for the other. Numerical differentiation is exact but scales terribly with parameter count; gradient-free search scales fine per-step but needs vastly more steps to converge. Backpropagation's staying power comes largely from being the rare method that didn't have to make that trade.
 
 ---
 
@@ -249,7 +265,7 @@ Backpropagation (reverse-mode automatic differentiation applied to a loss functi
 
 - **"Learning representations by back-propagating errors"** (Rumelhart, Hinton & Williams, 1986) — the *Nature* paper that popularized backpropagation for training multi-layer networks with hidden units: nature.com/articles/323533a0
 
-- **"Applications of advances in nonlinear sensitivity analysis"** (Werbos, 1974/1981) — the earlier PhD-thesis-derived work that applied reverse-mode differentiation to training neural-network-like systems, largely unnoticed until backpropagation's later popularization.
+- **"Beyond Regression: New Tools for Prediction and Analysis in the Behavioral Sciences"** (Werbos, PhD thesis, Harvard, 1974) — the earlier work that first applied reverse-mode differentiation to training neural-network-like systems, largely unnoticed until backpropagation's later popularization: gwern.net/doc/ai/nn/1974-werbos.pdf
 
 - **CS231n, "Backpropagation, Intuitions"** (Stanford, Karpathy et al.) — a widely used lecture note walking through the computational-graph view of backpropagation with worked examples: cs231n.github.io/optimization-2
 
