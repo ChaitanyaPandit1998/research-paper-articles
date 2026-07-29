@@ -1,0 +1,55 @@
+<svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<rect x="0" y="0" width="720" height="300" fill="#fffef9"/>
+<defs>
+  <marker id="arrowF" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 Z" fill="#1c201f4a"/>
+  </marker>
+  <marker id="arrowB" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 Z" fill="#a8641a"/>
+  </marker>
+</defs>
+<text x="24" y="26" font-size="14" fill="#1c201f" font-weight="700" font-family="Georgia,ui-serif,serif">Forward pass computes values; backward pass computes gradients</text>
+<text x="696" y="26" font-size="10.5" fill="#565f5b" text-anchor="end">a tiny two-layer computational graph</text>
+
+<!-- nodes -->
+<rect x="24" y="120" width="70" height="48" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="59" y="142" font-size="13" fill="#1c201f" text-anchor="middle" font-weight="600">x</text>
+<text x="59" y="158" font-size="10.5" fill="#565f5b" text-anchor="middle">input</text>
+
+<rect x="140" y="120" width="90" height="48" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="185" y="142" font-size="13" fill="#1c201f" text-anchor="middle" font-weight="600">z = wx+b</text>
+<text x="185" y="158" font-size="10.5" fill="#565f5b" text-anchor="middle">linear</text>
+
+<rect x="276" y="120" width="90" height="48" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="321" y="142" font-size="13" fill="#1c201f" text-anchor="middle" font-weight="600">h = f(z)</text>
+<text x="321" y="158" font-size="10.5" fill="#565f5b" text-anchor="middle">activation</text>
+
+<rect x="412" y="120" width="90" height="48" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="457" y="142" font-size="13" fill="#1c201f" text-anchor="middle" font-weight="600">y = wh+b</text>
+<text x="457" y="158" font-size="10.5" fill="#565f5b" text-anchor="middle">linear</text>
+
+<rect x="548" y="120" width="140" height="48" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="618" y="142" font-size="13" fill="#1c201f" text-anchor="middle" font-weight="600">L = loss(y, target)</text>
+<text x="618" y="158" font-size="10.5" fill="#565f5b" text-anchor="middle">loss</text>
+
+<!-- forward arrows -->
+<line x1="94" y1="136" x2="138" y2="136" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<line x1="230" y1="136" x2="274" y2="136" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<line x1="366" y1="136" x2="410" y2="136" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<line x1="502" y1="136" x2="546" y2="136" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<text x="370" y="100" font-size="11" fill="#565f5b" text-anchor="middle">forward pass: compute each value left to right &#8594;</text>
+
+<!-- backward arrows -->
+<line x1="546" y1="200" x2="504" y2="200" stroke="#a8641a" stroke-width="1.4" marker-end="url(#arrowB)"/>
+<line x1="410" y1="200" x2="368" y2="200" stroke="#a8641a" stroke-width="1.4" marker-end="url(#arrowB)"/>
+<line x1="274" y1="200" x2="232" y2="200" stroke="#a8641a" stroke-width="1.4" marker-end="url(#arrowB)"/>
+<line x1="138" y1="200" x2="96" y2="200" stroke="#a8641a" stroke-width="1.4" marker-end="url(#arrowB)"/>
+
+<text x="618" y="196" font-size="11" fill="#a8641a" text-anchor="middle">&#8706;L/&#8706;y</text>
+<text x="457" y="196" font-size="11" fill="#a8641a" text-anchor="middle">&#8706;L/&#8706;h</text>
+<text x="321" y="196" font-size="11" fill="#a8641a" text-anchor="middle">&#8706;L/&#8706;z</text>
+<text x="185" y="196" font-size="11" fill="#a8641a" text-anchor="middle">&#8706;L/&#8706;x</text>
+
+<text x="24" y="260" font-size="11" fill="#565f5b">&#8592; backward pass: starting from &#8706;L/&#8706;L = 1, the chain rule multiplies local derivatives leftward, one node at a time.</text>
+<text x="24" y="276" font-size="11" fill="#565f5b">Every node caches its forward-pass inputs; the backward pass reuses them to compute its local derivative before passing the gradient further back.</text>
+</svg>
