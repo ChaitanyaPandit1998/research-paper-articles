@@ -46,7 +46,7 @@ Training produces a static set of weights. Turning those weights into something 
 
 **Not recomputing the past on every step.** Naively, generating token 500 of a sequence would require re-running the attention computation over all 499 prior tokens from scratch. Every practical inference engine avoids this by caching each prior token's attention keys and values — the **KV cache** — so each new token only computes attention against a cache lookup, not a full recomputation. That cache is the single largest consumer of memory during generation besides the weights themselves, and how an engine manages it is close to the whole story of what makes vLLM and llama.cpp different from each other.
 
-$$\text{KV cache size (bytes)} = 2 \times n_{\text{layers}} \times n_{\text{heads}} \times d_{\text{head}} \times \text{seq\_len} \times \text{batch} \times \text{bytes\_per\_value}$$
+$$\text{KV cache size (bytes)} = 2 \times n_{\text{layers}} \times n_{\text{heads}} \times d_{\text{head}} \times \text{seqLen} \times \text{batch} \times \text{bytesPerValue}$$
 
 The factor of 2 is for storing both keys *and* values; everything else scales linearly with how long the conversation has gotten and how many conversations are running at once — which is exactly why cache management, not raw FLOPs, is the resource both engines spend the most design effort protecting.
 
