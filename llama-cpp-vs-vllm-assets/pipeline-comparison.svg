@@ -1,5 +1,5 @@
-<svg viewBox="0 0 800 340" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
-<rect x="0" y="0" width="800" height="340" fill="#fffef9"/>
+<svg viewBox="0 0 800 372" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<rect x="0" y="0" width="800" height="372" fill="#fffef9"/>
 <defs>
   <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
     <path d="M0,0 L6,3 L0,6 Z" fill="#1c201f4a"/>
@@ -51,71 +51,77 @@
 
 <!-- ===================== LANE 2: vLLM ===================== -->
 <text x="24" y="198" font-size="12.5" fill="#1f6e5f" font-weight="700">vLLM — continuous batching, paged cache shared across requests</text>
+<line x1="24" y1="208" x2="776" y2="208" stroke="#1c201f26" stroke-width="1"/>
 
-<text x="66" y="204" font-size="9.5" fill="#565f5b" text-anchor="middle">requests</text>
-<rect x="24" y="210" width="84" height="16" rx="2.5" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.2"/>
-<rect x="24" y="234" width="84" height="16" rx="2.5" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.2"/>
-<rect x="24" y="258" width="84" height="16" rx="2.5" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.2"/>
+<!-- header row: column labels, well clear of the divider above and the boxes below -->
+<text x="66" y="226" font-size="10.5" fill="#565f5b" text-anchor="middle">requests</text>
+<text x="380" y="226" font-size="10.5" fill="#565f5b" text-anchor="middle">paged KV cache</text>
+<text x="700" y="226" font-size="10.5" fill="#565f5b" text-anchor="middle">tokens</text>
 
-<line x1="108" y1="218" x2="140" y2="234" stroke="#1c201f4a" stroke-width="1.2"/>
-<line x1="108" y1="242" x2="140" y2="234" stroke="#1c201f4a" stroke-width="1.2"/>
-<line x1="108" y1="266" x2="140" y2="234" stroke="#1c201f4a" stroke-width="1.2"/>
-<line x1="140" y1="234" x2="146" y2="234" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<!-- idle-rate callout sits on its own line, directly above the grid it describes -->
+<text x="446" y="246" font-size="10" fill="#1f6e5f" text-anchor="end" font-weight="700">&lt;4% idle</text>
 
-<rect x="146" y="210" width="110" height="48" rx="3" fill="#f2efe6" stroke="#1f6e5f" stroke-width="1.4"/>
-<text x="201" y="230" font-size="12" fill="#1f6e5f" text-anchor="middle" font-weight="600">HF weights</text>
-<text x="201" y="244" font-size="9.5" fill="#565f5b" text-anchor="middle">safetensors</text>
+<!-- box row: everything aligned to a shared 252–300 band -->
+<rect x="24" y="252" width="84" height="14" rx="2.5" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.2"/>
+<rect x="24" y="269" width="84" height="14" rx="2.5" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.2"/>
+<rect x="24" y="286" width="84" height="14" rx="2.5" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.2"/>
 
-<line x1="256" y1="234" x2="292" y2="234" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="108" y1="259" x2="140" y2="276" stroke="#1c201f4a" stroke-width="1.2"/>
+<line x1="108" y1="276" x2="140" y2="276" stroke="#1c201f4a" stroke-width="1.2"/>
+<line x1="108" y1="293" x2="140" y2="276" stroke="#1c201f4a" stroke-width="1.2"/>
+<line x1="140" y1="276" x2="146" y2="276" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+<rect x="146" y="252" width="110" height="48" rx="3" fill="#f2efe6" stroke="#1f6e5f" stroke-width="1.4"/>
+<text x="201" y="272" font-size="12" fill="#1f6e5f" text-anchor="middle" font-weight="600">HF weights</text>
+<text x="201" y="286" font-size="9.5" fill="#565f5b" text-anchor="middle">safetensors</text>
+
+<line x1="256" y1="276" x2="292" y2="276" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
 
 <!-- KV cache: paged grid, shared, nearly full utilization -->
-<text x="380" y="204" font-size="9.5" fill="#565f5b" text-anchor="middle">paged KV cache — blocks shared across sequences</text>
 <g>
   <!-- 8 cols x 3 rows, pitch 18, square 14; last block left free -->
-  <rect x="306" y="214" width="14" height="14" fill="#1f6e5f"/>
-  <rect x="324" y="214" width="14" height="14" fill="#5fa393"/>
-  <rect x="342" y="214" width="14" height="14" fill="#1f6e5f"/>
-  <rect x="360" y="214" width="14" height="14" fill="#5fa393"/>
-  <rect x="378" y="214" width="14" height="14" fill="#1f6e5f"/>
-  <rect x="396" y="214" width="14" height="14" fill="#5fa393"/>
-  <rect x="414" y="214" width="14" height="14" fill="#1f6e5f"/>
-  <rect x="432" y="214" width="14" height="14" fill="#5fa393"/>
+  <rect x="306" y="252" width="14" height="14" fill="#1f6e5f"/>
+  <rect x="324" y="252" width="14" height="14" fill="#5fa393"/>
+  <rect x="342" y="252" width="14" height="14" fill="#1f6e5f"/>
+  <rect x="360" y="252" width="14" height="14" fill="#5fa393"/>
+  <rect x="378" y="252" width="14" height="14" fill="#1f6e5f"/>
+  <rect x="396" y="252" width="14" height="14" fill="#5fa393"/>
+  <rect x="414" y="252" width="14" height="14" fill="#1f6e5f"/>
+  <rect x="432" y="252" width="14" height="14" fill="#5fa393"/>
 
-  <rect x="306" y="232" width="14" height="14" fill="#5fa393"/>
-  <rect x="324" y="232" width="14" height="14" fill="#1f6e5f"/>
-  <rect x="342" y="232" width="14" height="14" fill="#5fa393"/>
-  <rect x="360" y="232" width="14" height="14" fill="#1f6e5f"/>
-  <rect x="378" y="232" width="14" height="14" fill="#5fa393"/>
-  <rect x="396" y="232" width="14" height="14" fill="#1f6e5f"/>
-  <rect x="414" y="232" width="14" height="14" fill="#5fa393"/>
-  <rect x="432" y="232" width="14" height="14" fill="#1f6e5f"/>
+  <rect x="306" y="270" width="14" height="14" fill="#5fa393"/>
+  <rect x="324" y="270" width="14" height="14" fill="#1f6e5f"/>
+  <rect x="342" y="270" width="14" height="14" fill="#5fa393"/>
+  <rect x="360" y="270" width="14" height="14" fill="#1f6e5f"/>
+  <rect x="378" y="270" width="14" height="14" fill="#5fa393"/>
+  <rect x="396" y="270" width="14" height="14" fill="#1f6e5f"/>
+  <rect x="414" y="270" width="14" height="14" fill="#5fa393"/>
+  <rect x="432" y="270" width="14" height="14" fill="#1f6e5f"/>
 
-  <rect x="306" y="250" width="14" height="14" fill="#1f6e5f"/>
-  <rect x="324" y="250" width="14" height="14" fill="#5fa393"/>
-  <rect x="342" y="250" width="14" height="14" fill="#1f6e5f"/>
-  <rect x="360" y="250" width="14" height="14" fill="#5fa393"/>
-  <rect x="378" y="250" width="14" height="14" fill="#1f6e5f"/>
-  <rect x="396" y="250" width="14" height="14" fill="#5fa393"/>
-  <rect x="414" y="250" width="14" height="14" fill="#5fa393"/>
-  <rect x="432" y="250" width="14" height="14" fill="#fffef9" stroke="#1c201f4a" stroke-width="1"/>
+  <rect x="306" y="288" width="14" height="14" fill="#1f6e5f"/>
+  <rect x="324" y="288" width="14" height="14" fill="#5fa393"/>
+  <rect x="342" y="288" width="14" height="14" fill="#1f6e5f"/>
+  <rect x="360" y="288" width="14" height="14" fill="#5fa393"/>
+  <rect x="378" y="288" width="14" height="14" fill="#1f6e5f"/>
+  <rect x="396" y="288" width="14" height="14" fill="#5fa393"/>
+  <rect x="414" y="288" width="14" height="14" fill="#5fa393"/>
+  <rect x="432" y="288" width="14" height="14" fill="#fffef9" stroke="#1c201f4a" stroke-width="1"/>
 </g>
-<text x="461" y="208" font-size="10" fill="#1f6e5f" text-anchor="end" font-weight="700">&lt;4% idle</text>
 
-<line x1="468" y1="234" x2="504" y2="234" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
+<line x1="468" y1="276" x2="504" y2="276" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrow)"/>
 
-<rect x="504" y="210" width="118" height="48" rx="3" fill="#f2efe6" stroke="#1f6e5f" stroke-width="1.4"/>
-<text x="563" y="230" font-size="12" fill="#1f6e5f" text-anchor="middle" font-weight="600">scheduler</text>
-<text x="563" y="244" font-size="9.5" fill="#565f5b" text-anchor="middle">continuous batching</text>
+<rect x="504" y="252" width="118" height="48" rx="3" fill="#f2efe6" stroke="#1f6e5f" stroke-width="1.4"/>
+<text x="563" y="272" font-size="12" fill="#1f6e5f" text-anchor="middle" font-weight="600">scheduler</text>
+<text x="563" y="286" font-size="9.5" fill="#565f5b" text-anchor="middle">continuous batching</text>
 
-<line x1="622" y1="218" x2="654" y2="218" stroke="#1c201f4a" stroke-width="1.2" marker-end="url(#arrow)"/>
-<line x1="622" y1="234" x2="654" y2="234" stroke="#1c201f4a" stroke-width="1.2" marker-end="url(#arrow)"/>
-<line x1="622" y1="250" x2="654" y2="250" stroke="#1c201f4a" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="622" y1="259" x2="654" y2="259" stroke="#1c201f4a" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="622" y1="276" x2="654" y2="276" stroke="#1c201f4a" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="622" y1="293" x2="654" y2="293" stroke="#1c201f4a" stroke-width="1.2" marker-end="url(#arrow)"/>
 
-<text x="700" y="204" font-size="9.5" fill="#565f5b" text-anchor="middle">tokens</text>
-<rect x="658" y="210" width="84" height="16" rx="2.5" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.2"/>
-<rect x="658" y="234" width="84" height="16" rx="2.5" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.2"/>
-<rect x="658" y="258" width="84" height="16" rx="2.5" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.2"/>
+<rect x="658" y="252" width="84" height="14" rx="2.5" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.2"/>
+<rect x="658" y="269" width="84" height="14" rx="2.5" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.2"/>
+<rect x="658" y="286" width="84" height="14" rx="2.5" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.2"/>
 
-<text x="24" y="292" font-size="11" fill="#565f5b">Pages the cache into small blocks allocated on demand and shared across many in-flight requests, re-scheduling</text>
-<text x="24" y="306" font-size="11" fill="#565f5b">the batch at every decoding step — busier to orchestrate, but under 4% of reserved memory sits idle.</text>
+<text x="24" y="330" font-size="11" fill="#565f5b">Pages the cache into small blocks allocated on demand and shared across many in-flight requests, re-scheduling</text>
+<text x="24" y="344" font-size="11" fill="#565f5b">the batch at every decoding step — busier to orchestrate, but under 4% of reserved memory sits idle.</text>
 </svg>
