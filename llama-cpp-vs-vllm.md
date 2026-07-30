@@ -56,6 +56,8 @@ The factor of 2 is for storing both keys *and* values; everything else scales li
 
 Three mechanisms, and the two engines make a different call on every one of them.
 
+![Two inference pipelines compared: llama.cpp runs one request through a single reserved KV-cache block that sits roughly 75% idle, while vLLM pages the cache into small blocks shared across many concurrently scheduled requests, leaving under 4% idle](llama-cpp-vs-vllm-assets/pipeline-comparison.svg)
+
 ### Quantization: how small can a weight get before the model breaks
 
 **Intuition first.** A weight trained and stored in 16-bit floating point carries far more precision than the model actually needs to produce a coherent next-token distribution. Quantization rounds each weight to a lower-precision representation — 8 bits, 4 bits, even lower — trading a small, usually-tolerable accuracy loss for a large, very-tolerable memory reduction.
@@ -120,7 +122,7 @@ Contiguous (max_len)     2048 × 0.5MB = 1024 MB            ~39 concurrent reque
 Paged (actual usage)     512  × 0.5MB = 256 MB              ~156 concurrent requests
 ```
 
-Because contiguous allocation reserves for the worst case every request *might* reach, it wastes roughly 75% of the memory it holds, matching the 60–80% figure the PagedAttention paper measured empirically. Paging reclaims that waste directly into more concurrent capacity — a **4× increase in requests served from the same GPU memory**, with no change to the model, the hardware, or the quantization. This is the single number that explains why vLLM's throughput claims (the original paper reported 2–4× higher throughput than the serving stacks of the time) are structural, not a micro-optimization — they come from memory accounting, not from a faster kernel.
+Because contiguous allocation reserves for the worst case every request *might* reach, it wastes roughly 75% of the memory it holds, matching the 60–80% figure the PagedAttention paper measured empirically across existing systems — a waste that vLLM's own paging brings down to **under 4%**. Paging reclaims that waste directly into more concurrent capacity — a **4× increase in requests served from the same GPU memory**, with no change to the model, the hardware, or the quantization. This is the single number that explains why vLLM's throughput claims (the paper reports 2–4× higher throughput than FasterTransformer and Orca at the same latency) are structural, not a micro-optimization — they come from memory accounting, not from a faster kernel.
 
 ---
 
