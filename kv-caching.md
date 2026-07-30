@@ -74,6 +74,18 @@ $$\text{cache size} = 2 \times L \times H \times d_h \times S \times b \times \t
 
 where $L$ is the number of layers, $H$ the number of KV heads, $d_h$ the per-head dimension, $S$ the sequence length so far, and $b$ the batch size (the leading 2 accounts for storing both K *and* V). Every one of those factors is linear — double the sequence length, double the cache; double the batch size serving concurrent requests, double the cache again. This is exactly the growth that motivates [Section 6](#6-what-kv-caching-doesnt-solve) and the head-count reductions in [Section 7](#7-alternatives-and-relatives).
 
+**The cost in actual numbers.** Plug in Llama-3-8B's real dimensions — $L=32$ layers, $H=8$ KV heads (it ships with GQA, see [Section 7](#7-alternatives-and-relatives)), $d_h=128$, fp16 (2 bytes per element), batch size $b=1$:
+
+$$\text{per-token cache} = 2 \times 32 \times 8 \times 128 \times 2\ \text{bytes} = 131{,}072\ \text{bytes} \approx 128\ \text{KB per token}$$
+
+| Context length $S$ | Llama-3-8B's actual cache (GQA, 8 KV heads) | Same model, if it used full MHA (32 KV heads instead) |
+|---|---|---|
+| 4,096 (a short chat) | 512 MB | 2.0 GB |
+| 32,768 (a long document) | 4.0 GB | 16.0 GB |
+| 131,072 (128K, its full context window) | 16.0 GB | 64.0 GB |
+
+The model's own weights are about 16 GB in fp16 (8B parameters × 2 bytes). Read that against the table: at a full 128K-token context, this one request's KV cache is already as large as the entire model — and if Llama-3-8B hadn't shipped with GQA, the cache alone at that context length would need 64 GB, more than fits on a single 80GB A100 alongside the model and anything else. This is exactly why GQA wasn't optional for a model shipping a 128K context window; it's also why the number that matters in production is rarely a single request's cache but the *batched* total — 32 concurrent short (4,096-token) conversations already cost $32 \times 512\text{MB} = 16\text{GB}$, the same as the model's weights, from ordinary-length chats alone.
+
 > **Note.** This is the mirror image of the forward/backward asymmetry from the [backpropagation article](backpropagation.md#3-the-forward-pass-and-the-backward-pass): training needs to keep every layer's *activations* alive until the backward pass consumes them, while inference here needs to keep every past token's *keys and values* alive for as long as generation continues. Both are the same tradeoff — memory spent to avoid recomputation — applied at two completely different points in a model's life cycle.
 
 ---
