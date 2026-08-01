@@ -1,0 +1,67 @@
+<svg viewBox="0 0 720 420" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<rect x="0" y="0" width="720" height="420" fill="#fffef9"/>
+<defs>
+  <marker id="arrowF" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 Z" fill="#1c201f4a"/>
+  </marker>
+  <marker id="arrowB" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 Z" fill="#a8641a"/>
+  </marker>
+</defs>
+<text x="24" y="26" font-size="14" fill="#1c201f" font-weight="700" font-family="Georgia,ui-serif,serif">The harness loop: the model proposes, the harness disposes</text>
+<text x="696" y="26" font-size="10.5" fill="#565f5b" text-anchor="end">one turn of an agent harness</text>
+
+<!-- outer harness boundary -->
+<rect x="24" y="50" width="672" height="322" rx="6" fill="none" stroke="#1c201f33" stroke-width="1.4" stroke-dasharray="4 3"/>
+<text x="40" y="68" font-size="10.5" fill="#565f5b" font-style="italic">harness boundary</text>
+
+<!-- context builder -->
+<rect x="52" y="150" width="120" height="56" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="112" y="174" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">context</text>
+<text x="112" y="190" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">builder</text>
+
+<!-- model -->
+<rect x="236" y="150" width="100" height="56" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="286" y="182" font-size="13" fill="#1c201f" text-anchor="middle" font-weight="600">model</text>
+
+<!-- permission gate -->
+<rect x="400" y="150" width="120" height="56" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="460" y="174" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">permission</text>
+<text x="460" y="190" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">gate</text>
+
+<!-- tool execution -->
+<rect x="584" y="150" width="104" height="56" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="636" y="174" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">tool</text>
+<text x="636" y="190" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">execution</text>
+
+<!-- memory store -->
+<rect x="236" y="290" width="100" height="56" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="286" y="314" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">memory</text>
+<text x="286" y="330" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">store</text>
+
+<!-- forward arrows: user -> context -> model -> gate -> execution -->
+<line x1="30" y1="178" x2="50" y2="178" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<text x="8" y="182" font-size="11" fill="#565f5b">user</text>
+<line x1="172" y1="178" x2="234" y2="178" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<line x1="336" y1="178" x2="398" y2="178" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<text x="367" y="168" font-size="10" fill="#565f5b" text-anchor="middle">tool request</text>
+<line x1="520" y1="178" x2="582" y2="178" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<text x="551" y="168" font-size="10" fill="#565f5b" text-anchor="middle">approved</text>
+
+<!-- denied path, short stub back to model -->
+<path d="M460,150 C460,120 340,120 288,148" fill="none" stroke="#a8641a" stroke-width="1.4" marker-end="url(#arrowB)"/>
+<text x="374" y="118" font-size="10" fill="#a8641a" text-anchor="middle">denied / ask human</text>
+
+<!-- backward: tool result back to context builder (feeds next turn) -->
+<path d="M636,206 C636,260 172,260 112,208" fill="none" stroke="#a8641a" stroke-width="1.4" marker-end="url(#arrowB)"/>
+<text x="374" y="272" font-size="10" fill="#a8641a" text-anchor="middle">tool result &#8594; fed back into next turn's context</text>
+
+<!-- memory read/write -->
+<line x1="286" y1="290" x2="286" y2="208" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<text x="296" y="252" font-size="10" fill="#565f5b">read</text>
+<line x1="266" y1="208" x2="266" y2="290" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<text x="222" y="252" font-size="10" fill="#565f5b">write</text>
+
+<text x="40" y="392" font-size="11" fill="#565f5b">The model only ever emits a request. The permission gate — not the model — decides whether it runs, and the harness feeds the real</text>
+<text x="40" y="408" font-size="11" fill="#565f5b">outcome back in before the next turn, so the model's next move is conditioned on what actually happened, not on what it predicted.</text>
+</svg>
