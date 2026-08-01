@@ -64,6 +64,8 @@ Every non-trivial agent harness, regardless of domain, is built from the same ha
 
 ![Diagram of one turn through an agent harness: the context builder feeds the model, the model emits a tool request, the permission gate approves or denies it, approved requests reach tool execution, and the result feeds back into the next turn's context, with memory read from and written back to the loop](harness-engineering-assets/harness-loop.svg)
 
+*The diagram above simplifies two of the six pieces described below. Termination and escalation logic isn't drawn at all, since it governs whether another turn happens rather than anything that flows through this one. Tool interface also has no box of its own — it's the contract behind the "tool request" arrow, not a stage the flow passes through.*
+
 **Context builder.** Decides what the model actually sees this turn: the system prompt, relevant memory, recent conversation, and any files or search results retrieved for the task. This is where a harness compensates for the model's statelessness — what isn't assembled here simply doesn't exist for the model.
 
 **Tool interface.** The fixed menu of actions the model is allowed to *request*. A tool definition is a contract: a name, a schema for its arguments, and a promise about what it does. The model never executes anything itself — it emits a structured request, and the harness decides whether and how to fulfill it.
@@ -157,11 +159,9 @@ Harness engineering is the dominant way to turn a model into an agent today, but
 | Context builder | Assembles what the model sees this turn — prompt, memory, retrieved data | Between the user/task and the model |
 | Tool interface | Fixed, schema-defined actions the model may request | Between the model and the outside world |
 | Permission gate | Policy deciding auto-approve / confirm / deny per action | Between a tool request and its execution |
-| Execution & feedback | Actually runs approved actions and returns real results | Around the tool interface |
+| Execution & feedback | Actually runs approved actions and returns real results | Between the permission gate's approval and the next turn's context |
 | Memory | What survives past the current context window | Read/written by the context builder |
-| Termination logic | Rule for when the loop stops or escalates | Wraps the whole turn cycle |
-| What harness engineering changes | What the model can see, do, and be checked against | Everything except the model's weights |
-| What it doesn't change | The model's underlying judgment and reasoning quality | Left to training / fine-tuning |
+| Termination and escalation logic | Rule for when the loop stops or escalates | Wraps the whole turn cycle |
 
 ---
 
@@ -173,6 +173,7 @@ Harness engineering is the dominant way to turn a model into an agent today, but
 - **Verification beats trust.** Wherever a claim the model makes ("tests pass," "the fix worked") can be mechanically re-checked, a well-built harness checks it rather than accepting it.
 - **Context is a curated resource, not a dumping ground.** What the context builder chooses to leave out matters as much as what it includes.
 - **A harness cannot manufacture capability.** It can make a model's mistakes cheaper to catch and recover from — it cannot make a poorly-reasoning model reason well, or a vague instruction unambiguous.
+- **The dividing line is the model's weights.** A harness changes everything about what a model can see, do, and be checked against; it changes nothing about the model's underlying judgment — that's what training and fine-tuning are for.
 
 ---
 
