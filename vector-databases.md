@@ -90,6 +90,10 @@ Every production vector database, regardless of vendor, is built from the same h
   - IVF instead partitions the space into clusters ("cells") via a coarse quantizer and, at query time, only searches the handful of cells nearest the query.
   - Product quantization compresses each vector into a small code to shrink memory footprint, at some cost to precision — often combined with IVF (as "IVF-PQ") for very large collections.
 
+  **IVF, in plain terms.** Imagine sorting 50,000 books into 100 labeled bins by rough topic, where each bin's label is the "average book" in it (the centroid). To find books near a new query, don't check all 50,000 — check which handful of bin labels the query is closest to (say, the 8 nearest), then only search inside those bins. You skip the other 92 bins entirely. This is exactly what `build_ivf_index` and `ivf_search` do in the code below: the centroids are the bin labels, `n_probe` is how many bins get searched, and the trade is that a book sitting right on the border of an unsearched bin can get missed — which is where the small recall loss comes from.
+
+  **HNSW, in plain terms.** Imagine a road network with a few long highways connecting distant cities, then progressively smaller roads — state routes, then local streets — that only connect nearby points. To get from a random starting point to your actual destination, you'd take a highway to get in the right general area fast, then switch to smaller roads to home in precisely, rather than checking every side street in the country. HNSW builds exactly this kind of layered structure over the vectors themselves: a query starts on the sparse "highway" layer, jumps toward the query's neighborhood in a few big hops, then descends through denser layers to pin down the precise nearest neighbors. That's why it scales roughly logarithmically with collection size instead of linearly — each layer prunes away the vast majority of the search space before the next layer even starts. (The code example below implements IVF rather than HNSW, since a from-scratch HNSW graph needs enough bookkeeping — layer assignment, neighbor-list maintenance — that it would obscure the comparison rather than clarify it; the trade-off it demonstrates is the same one HNSW makes, just via a different mechanism.)
+
 - **Distance metric.** The function used to compare vectors.
   - Cosine similarity — angle between vectors, ignoring magnitude — the most common choice for text embeddings.
   - Dot product — angle and magnitude both matter — used when magnitude itself is meaningful, as in some recommendation embeddings.
@@ -205,6 +209,19 @@ print(f"Approx top-{k}:   {approx_results}")
 print(f"Recall@{k}:       {recall:.2f}  (fraction of true nearest neighbors the approximate search found)")
 ```
 
+**Line by line.**
+
+- `rng = np.random.default_rng(0)` — a seeded random generator, so the run is reproducible and the `Recall@5: 1.00` quoted below is a fact about this exact query, not a "usually."
+- `blob_centers = rng.normal(size=(n_blobs, dim))` — 200 random points in 128-dimensional space, standing in for 200 "topics."
+- `blob_id = rng.integers(0, n_blobs, size=n_vectors)` — randomly assigns each of the 50,000 vectors to one of those 200 topics.
+- `vectors = blob_centers[blob_id] + rng.normal(scale=0.3, ...)` — each vector is its topic's center plus a little noise, so the 50,000 vectors form 200 tight clusters rather than scattering uniformly — the structure real embeddings actually have.
+- `vectors /= np.linalg.norm(...)` — unit-normalizes every vector. This is what turns a plain dot product into cosine similarity in the lines that follow.
+- `query = blob_centers[7] + rng.normal(...)` — builds a query vector as a noisy version of topic #7's center, simulating a real query landing near an existing topic rather than off in empty space.
+- `exact_search`: `vectors @ query` computes the cosine similarity between the query and *all 50,000* vectors in one matrix-vector product. `np.argpartition(-similarities, k)[:k]` grabs the top-`k` largest without fully sorting everything — `O(n)` instead of `O(n log n)` — and the final line sorts just those `k` into descending order. This is the brute-force baseline: compare against everything, always correct.
+- `build_ivf_index`: picks 100 random existing vectors as cluster centroids (a stand-in for k-means, which real IVF uses). `vectors @ centroids.T` gives every vector's similarity to every centroid; `argmax(..., axis=1)` assigns each vector to its nearest centroid. `clusters` is a dict from cluster ID to the vector indices in it — this is the one-time index-build step.
+- `ivf_search`: `centroids @ query` compares the query against only the 100 centroids (cheap), and `argsort` plus slicing keeps the `n_probe=8` closest ones. `candidate_idx` pools every vector belonging to those 8 clusters — vectors in the other 92 clusters are never touched, which is the approximation itself. The rest mirrors `exact_search`, just over that much smaller pool.
+- `recall = len(set(exact_results) & set(approx_results)) / k` — what fraction of the true top-5 (from exact search) the approximate search also found, via a set intersection over 5 items.
+
 - Run this and it prints `Recall@5: 1.00` for this particular query.
   - The `n_probe=8` out of 100 clusters means roughly 92% of vectors are never compared against the query at all, yet recall stays high, because the true nearest neighbors are overwhelmingly likely to live in one of the few clusters closest to the query's own centroid.
 - Try it across many queries scattered near different clusters and recall averages around 0.98 rather than a flat 1.00 — occasionally the true nearest neighbors split across a cluster boundary the search didn't probe, which is the approximation actually costing something.
@@ -284,8 +301,11 @@ Vector search is the dominant approach to semantic retrieval today, but it sits 
 ## 10. Further reading
 
 - **"Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs"** (Malkov & Yashunin, 2016) — the original HNSW paper, the algorithm behind most production vector database indexes today: arxiv.org/abs/1603.09320
+  - For a gentler run-up to that paper: Pinecone's ["Hierarchical Navigable Small Worlds (HNSW)"](https://www.pinecone.io/learn/series/faiss/hnsw/) walks through the layered-graph intuition with diagrams before getting into the algorithmic detail.
 
 - **"Billion-scale similarity search with GPUs"** (Johnson, Douze & Jégou, 2017) — the FAISS paper, covering IVF and product quantization at the scale where memory and compute, not just algorithmic complexity, become the binding constraint: arxiv.org/abs/1702.08734
+  - For the IVF intuition specifically, without the GPU-scale material: Pinecone's ["Nearest Neighbor Indexes for Similarity Search"](https://www.pinecone.io/learn/series/faiss/vector-indexes/) covers IVF (and flat/exact search) as a standalone concept.
+  - The [FAISS wiki](https://github.com/facebookresearch/faiss/wiki) is the practical reference once you're ready to actually tune `nlist`/`nprobe` or choose between index types rather than just understand them conceptually.
 
 - **"Dense Passage Retrieval for Open-Domain Question Answering"** (Karpukhin et al., 2020) — an early, influential demonstration of embedding-based retrieval outperforming classical keyword search (BM25) for open-domain QA, a result that helped motivate the modern RAG pattern: arxiv.org/abs/2004.04906
 
