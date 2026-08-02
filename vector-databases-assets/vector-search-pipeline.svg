@@ -1,0 +1,65 @@
+<svg viewBox="0 0 720 420" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<rect x="0" y="0" width="720" height="420" fill="#fffef9"/>
+<defs>
+  <marker id="arrowF" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 Z" fill="#1c201f4a"/>
+  </marker>
+  <marker id="arrowB" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 Z" fill="#a8641a"/>
+  </marker>
+</defs>
+<text x="24" y="26" font-size="14" fill="#1c201f" font-weight="700" font-family="Georgia,ui-serif,serif">The vector search pipeline: meaning in, nearest neighbors out</text>
+<text x="696" y="26" font-size="10.5" fill="#565f5b" text-anchor="end">one query through a vector database</text>
+
+<!-- outer boundary -->
+<rect x="24" y="50" width="672" height="322" rx="6" fill="none" stroke="#1c201f33" stroke-width="1.4" stroke-dasharray="4 3"/>
+<text x="40" y="68" font-size="10.5" fill="#565f5b" font-style="italic">vector database boundary</text>
+
+<!-- embedding model (query side) -->
+<rect x="52" y="150" width="120" height="56" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="112" y="174" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">embedding</text>
+<text x="112" y="190" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">model</text>
+
+<!-- ANN index -->
+<rect x="236" y="150" width="110" height="56" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="291" y="174" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">ANN index</text>
+<text x="291" y="190" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">(HNSW / IVF)</text>
+
+<!-- metadata filter -->
+<rect x="410" y="150" width="120" height="56" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="470" y="174" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">metadata</text>
+<text x="470" y="190" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">filtering</text>
+
+<!-- top-k results -->
+<rect x="594" y="150" width="94" height="56" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="641" y="174" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">top-k</text>
+<text x="641" y="190" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">results</text>
+
+<!-- stored vectors, populated at ingest -->
+<rect x="236" y="290" width="110" height="56" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="291" y="314" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">stored</text>
+<text x="291" y="330" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">vectors</text>
+
+<!-- forward arrows: query text -> embedding -> index -> filter -> results -->
+<line x1="30" y1="178" x2="50" y2="178" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<text x="6" y="182" font-size="11" fill="#565f5b">query</text>
+<line x1="172" y1="178" x2="234" y2="178" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<text x="203" y="168" font-size="10" fill="#565f5b" text-anchor="middle">query vector</text>
+<line x1="346" y1="178" x2="408" y2="178" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<text x="377" y="168" font-size="10" fill="#565f5b" text-anchor="middle">candidates</text>
+<line x1="530" y1="178" x2="592" y2="178" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<text x="561" y="168" font-size="10" fill="#565f5b" text-anchor="middle">filtered</text>
+
+<!-- ingest path: same embedding model populates the index ahead of time -->
+<path d="M112,208 C112,260 236,310 234,318" fill="none" stroke="#a8641a" stroke-width="1.4" marker-end="url(#arrowB)"/>
+<text x="150" y="266" font-size="10" fill="#a8641a">ingest-time embedding</text>
+<text x="150" y="280" font-size="10" fill="#a8641a">(same model, done earlier)</text>
+
+<!-- index reads from stored vectors at query time -->
+<line x1="291" y1="290" x2="291" y2="208" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<text x="301" y="252" font-size="10" fill="#565f5b">search</text>
+
+<text x="40" y="380" font-size="11" fill="#565f5b">The database never sees raw text — only vectors. The same embedding model runs twice:</text>
+<text x="40" y="396" font-size="11" fill="#565f5b">once at ingest time to populate the index, and once per query to map the incoming</text>
+<text x="40" y="412" font-size="11" fill="#565f5b">request into that same space before the index searches it.</text>
+</svg>
