@@ -155,6 +155,8 @@ Nothing in this sequence involved literal word matching. What made "why is my pa
 ```python
 import numpy as np
 
+# Seeded, so this run is reproducible — the Recall@5: 1.00 quoted below is a fact
+# about this exact query, not a "usually."
 rng = np.random.default_rng(0)
 
 # --- Setup: 50,000 "embeddings" in 128 dimensions, arranged into 200 topic clusters ---
@@ -162,13 +164,24 @@ rng = np.random.default_rng(0)
 # around topics, which is exactly the structure IVF depends on to be worth using. Purely
 # random, unclustered vectors would make the clustering step meaningless.
 n_vectors, dim, n_blobs = 50_000, 128, 200
-blob_centers = rng.normal(size=(n_blobs, dim)).astype(np.float32)
-blob_id = rng.integers(0, n_blobs, size=n_vectors)
-vectors = blob_centers[blob_id] + rng.normal(scale=0.3, size=(n_vectors, dim)).astype(np.float32)
-vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)  # unit-normalize for cosine similarity
 
-# a query landing near an existing cluster, the way a new item's embedding typically
-# lands close to a topic that's already well represented in the collection
+# 200 random points in 128-dimensional space, standing in for 200 "topics"
+blob_centers = rng.normal(size=(n_blobs, dim)).astype(np.float32)
+
+# randomly assigns each of the 50,000 vectors to one of those 200 topics
+blob_id = rng.integers(0, n_blobs, size=n_vectors)
+
+# each vector is its topic's center plus a little noise, so the 50,000 vectors
+# form 200 tight clusters rather than scattering uniformly — the structure real
+# embeddings actually have
+vectors = blob_centers[blob_id] + rng.normal(scale=0.3, size=(n_vectors, dim)).astype(np.float32)
+
+# unit-normalize every vector — this is what turns a plain dot product into
+# cosine similarity in the lines that follow
+vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
+
+# a query built as a noisy version of topic #7's center, simulating a real query
+# landing near an existing topic rather than off in empty space
 query = blob_centers[7] + rng.normal(scale=0.3, size=dim).astype(np.float32)
 query /= np.linalg.norm(query)
 
@@ -176,51 +189,52 @@ k = 5
 
 # --- Exact search: brute-force cosine similarity against every vector ---
 def exact_search(query, vectors, k):
-    similarities = vectors @ query          # cosine similarity, since both sides are unit-normalized
+    # cosine similarity between the query and all 50,000 vectors in one
+    # matrix-vector product, since both sides are unit-normalized
+    similarities = vectors @ query
+    # grabs the top-k largest without fully sorting everything — O(n) instead of O(n log n)
     top_k = np.argpartition(-similarities, k)[:k]
+    # sorts just those k candidates into descending order
     return top_k[np.argsort(-similarities[top_k])]
 
+# the brute-force baseline: compare against everything, always correct
 exact_results = exact_search(query, vectors, k)
 
 # --- A minimal IVF-style approximate search: cluster, then only search nearby clusters ---
 def build_ivf_index(vectors, n_clusters=100, seed=0):
     rng = np.random.default_rng(seed)
+    # picks 100 random existing vectors as cluster centroids
+    # (a stand-in for k-means, which real IVF implementations use)
     centroid_idx = rng.choice(len(vectors), n_clusters, replace=False)
     centroids = vectors[centroid_idx]
-    assignments = np.argmax(vectors @ centroids.T, axis=1)  # nearest centroid per vector
+    # every vector's similarity to every centroid, then each vector's nearest centroid
+    assignments = np.argmax(vectors @ centroids.T, axis=1)
+    # cluster ID -> the vector indices belonging to it; this is the one-time index build
     clusters = {c: np.where(assignments == c)[0] for c in range(n_clusters)}
     return centroids, clusters
 
 def ivf_search(query, vectors, centroids, clusters, k, n_probe=8):
-    # only search the n_probe clusters whose centroid is closest to the query —
-    # this is the approximation: vectors in the other 92 clusters are never even compared
+    # compares the query against only the 100 centroids (cheap), then keeps the
+    # n_probe=8 closest ones
     nearest_clusters = np.argsort(-(centroids @ query))[:n_probe]
+    # pools every vector belonging to those 8 clusters — vectors in the other 92
+    # clusters are never touched, which is the approximation itself
     candidate_idx = np.concatenate([clusters[c] for c in nearest_clusters])
     similarities = vectors[candidate_idx] @ query
     top_k = np.argpartition(-similarities, min(k, len(candidate_idx) - 1))[:k]
+    # mirrors exact_search's final two lines, just over the much smaller candidate pool
     return candidate_idx[top_k[np.argsort(-similarities[top_k])]]
 
 centroids, clusters = build_ivf_index(vectors)
 approx_results = ivf_search(query, vectors, centroids, clusters, k)
 
+# what fraction of the true top-5 (from exact search) the approximate search also
+# found, via a set intersection over 5 items
 recall = len(set(exact_results) & set(approx_results)) / k
 print(f"Exact top-{k}:    {exact_results}")
 print(f"Approx top-{k}:   {approx_results}")
 print(f"Recall@{k}:       {recall:.2f}  (fraction of true nearest neighbors the approximate search found)")
 ```
-
-**Line by line.**
-
-- `rng = np.random.default_rng(0)` — a seeded random generator, so the run is reproducible and the `Recall@5: 1.00` quoted below is a fact about this exact query, not a "usually."
-- `blob_centers = rng.normal(size=(n_blobs, dim))` — 200 random points in 128-dimensional space, standing in for 200 "topics."
-- `blob_id = rng.integers(0, n_blobs, size=n_vectors)` — randomly assigns each of the 50,000 vectors to one of those 200 topics.
-- `vectors = blob_centers[blob_id] + rng.normal(scale=0.3, ...)` — each vector is its topic's center plus a little noise, so the 50,000 vectors form 200 tight clusters rather than scattering uniformly — the structure real embeddings actually have.
-- `vectors /= np.linalg.norm(...)` — unit-normalizes every vector. This is what turns a plain dot product into cosine similarity in the lines that follow.
-- `query = blob_centers[7] + rng.normal(...)` — builds a query vector as a noisy version of topic #7's center, simulating a real query landing near an existing topic rather than off in empty space.
-- `exact_search`: `vectors @ query` computes the cosine similarity between the query and *all 50,000* vectors in one matrix-vector product. `np.argpartition(-similarities, k)[:k]` grabs the top-`k` largest without fully sorting everything — `O(n)` instead of `O(n log n)` — and the final line sorts just those `k` into descending order. This is the brute-force baseline: compare against everything, always correct.
-- `build_ivf_index`: picks 100 random existing vectors as cluster centroids (a stand-in for k-means, which real IVF uses). `vectors @ centroids.T` gives every vector's similarity to every centroid; `argmax(..., axis=1)` assigns each vector to its nearest centroid. `clusters` is a dict from cluster ID to the vector indices in it — this is the one-time index-build step.
-- `ivf_search`: `centroids @ query` compares the query against only the 100 centroids (cheap), and `argsort` plus slicing keeps the `n_probe=8` closest ones. `candidate_idx` pools every vector belonging to those 8 clusters — vectors in the other 92 clusters are never touched, which is the approximation itself. The rest mirrors `exact_search`, just over that much smaller pool.
-- `recall = len(set(exact_results) & set(approx_results)) / k` — what fraction of the true top-5 (from exact search) the approximate search also found, via a set intersection over 5 items.
 
 - Run this and it prints `Recall@5: 1.00` for this particular query.
   - The `n_probe=8` out of 100 clusters means roughly 92% of vectors are never compared against the query at all, yet recall stays high, because the true nearest neighbors are overwhelmingly likely to live in one of the few clusters closest to the query's own centroid.
