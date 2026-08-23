@@ -325,7 +325,9 @@ Vector search is the dominant approach to semantic retrieval today, but it sits 
 
 - **"Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks"** (Lewis et al., 2020) — the paper that named and formalized RAG, the pattern most responsible for vector databases becoming mainstream infrastructure: arxiv.org/abs/2005.11401
 
-- **[Vector databases, Part 2](vector-databases-part2.md)** — the direct continuation of this article: BM25 and SPLADE for sparse/lexical retrieval, scalar/product/binary/TurboQuant quantization for shrinking vectors at scale, and reciprocal rank fusion for combining dense and sparse search into one ranking.
+- **[Vector databases, Part 2](vector-databases-part2.md)** — the direct continuation of this article: BM25 and SPLADE for sparse/lexical retrieval, and why dense embeddings alone can't structurally replace them.
+
+- **[Vector databases, Part 3](vector-databases-part3.md)** — continues from Part 2: scalar/product/binary/TurboQuant quantization for shrinking vectors at scale, and reciprocal rank fusion for combining dense and sparse search into one ranking.
 
 - **The companion [KV caching](kv-caching.md) and [harness engineering](harness-engineering.md) articles** — for two other pieces of the modern LLM-application stack: how a single model call gets made cheaper, and how a model gets wrapped into a system that can act, of which retrieval is often one tool among several.
 
