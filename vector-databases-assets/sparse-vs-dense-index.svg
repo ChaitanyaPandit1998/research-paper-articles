@@ -1,0 +1,63 @@
+<svg viewBox="0 0 720 400" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<rect x="0" y="0" width="720" height="400" fill="#fffef9"/>
+<defs>
+  <marker id="arrowF" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 Z" fill="#1c201f4a"/>
+  </marker>
+  <marker id="arrowB" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 Z" fill="#a8641a"/>
+  </marker>
+</defs>
+<text x="24" y="26" font-size="14" fill="#1c201f" font-weight="700" font-family="Georgia,ui-serif,serif">Two index structures, one query</text>
+<text x="696" y="26" font-size="10.5" fill="#565f5b" text-anchor="end">dense vs. sparse search</text>
+
+<!-- query box -->
+<rect x="300" y="46" width="120" height="40" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="360" y="70" font-size="12" fill="#1c201f" text-anchor="middle" font-weight="600">query</text>
+
+<line x1="330" y1="86" x2="180" y2="118" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+<line x1="390" y1="86" x2="540" y2="118" stroke="#1c201f4a" stroke-width="1.4" marker-end="url(#arrowF)"/>
+
+<!-- LEFT: dense path -->
+<text x="60" y="112" font-size="11.5" fill="#1c201f" font-weight="700">dense embedding</text>
+<rect x="60" y="122" width="240" height="36" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="180" y="145" font-size="11" fill="#1c201f" text-anchor="middle">[0.12, -0.08, 0.31, ... 768 dims]</text>
+
+<!-- small HNSW graph -->
+<rect x="60" y="176" width="240" height="150" rx="4" fill="none" stroke="#1c201f33" stroke-width="1.2" stroke-dasharray="3 3"/>
+<text x="72" y="194" font-size="10.5" fill="#565f5b" font-style="italic">HNSW graph (Part 1)</text>
+<g stroke="#1c201f66" stroke-width="1.2">
+  <line x1="120" y1="210" x2="180" y2="230"/>
+  <line x1="180" y1="230" x2="250" y2="215"/>
+  <line x1="180" y1="230" x2="140" y2="270"/>
+  <line x1="180" y1="230" x2="230" y2="280"/>
+  <line x1="140" y1="270" x2="230" y2="280"/>
+  <line x1="250" y1="215" x2="230" y2="280"/>
+</g>
+<circle cx="120" cy="210" r="5" fill="#f2efe6" stroke="#1c201f" stroke-width="1.2"/>
+<circle cx="250" cy="215" r="5" fill="#f2efe6" stroke="#1c201f" stroke-width="1.2"/>
+<circle cx="180" cy="230" r="6" fill="#a8641a33" stroke="#a8641a" stroke-width="1.6"/>
+<circle cx="140" cy="270" r="5" fill="#f2efe6" stroke="#1c201f" stroke-width="1.2"/>
+<circle cx="230" cy="280" r="5" fill="#f2efe6" stroke="#1c201f" stroke-width="1.2"/>
+<text x="180" y="308" font-size="10" fill="#565f5b" text-anchor="middle">walk toward nearest neighbor</text>
+<text x="180" y="322" font-size="10" fill="#565f5b" text-anchor="middle">~log(n) comparisons, approximate</text>
+
+<!-- RIGHT: sparse path -->
+<text x="420" y="112" font-size="11.5" fill="#1c201f" font-weight="700">sparse vector (BM25 / SPLADE)</text>
+<rect x="420" y="122" width="240" height="36" rx="3" fill="#f2efe6" stroke="#1c201f4a" stroke-width="1.4"/>
+<text x="540" y="145" font-size="11" fill="#1c201f" text-anchor="middle">{"payment": 2.1, "declined": 1.8, ...}</text>
+
+<!-- inverted index -->
+<rect x="420" y="176" width="240" height="150" rx="4" fill="none" stroke="#1c201f33" stroke-width="1.2" stroke-dasharray="3 3"/>
+<text x="432" y="194" font-size="10.5" fill="#565f5b" font-style="italic">inverted index</text>
+<text x="432" y="214" font-size="10.5" fill="#1c201f">"payment"  →  doc 7, doc 12, doc 88</text>
+<text x="432" y="232" font-size="10.5" fill="#1c201f">"declined"  →  doc 7, doc 41</text>
+<text x="432" y="250" font-size="10.5" fill="#a8641a" font-weight="600">shared terms  →  doc 7 scored</text>
+<line x1="432" y1="258" x2="620" y2="258" stroke="#1c201f33" stroke-width="1"/>
+<text x="540" y="308" font-size="10" fill="#565f5b" text-anchor="middle">only postings lists for query terms</text>
+<text x="540" y="322" font-size="10" fill="#565f5b" text-anchor="middle">get touched — exact, not approximate</text>
+
+<text x="40" y="356" font-size="11" fill="#565f5b">Same query, two structurally different lookups: HNSW skips most vectors by walking a graph built for</text>
+<text x="40" y="372" font-size="11" fill="#565f5b">approximate proximity; an inverted index skips most documents outright, because a document with none</text>
+<text x="40" y="388" font-size="11" fill="#565f5b">of the query's terms has nothing to score in the first place.</text>
+</svg>
