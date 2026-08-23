@@ -12,7 +12,7 @@
 - why quantization exists, and the memory problem it's solving
 - scalar, product, binary, and rotation-based (TurboQuant) quantization, compared
 - reciprocal rank fusion, the mechanism that merges dense and sparse results into one ranking
-- what none of this actually solves — uneven quantization loss, RRF's blind spots, and doubled maintenance
+- what none of this actually solves — uneven quantization loss, RRF's blind spots, doubled maintenance, and filtering across two retrieval paths at once
 - a worked example where hybrid search finds something dense-only search misses
 
 ---
@@ -94,7 +94,7 @@
 
 - **The setup.** A hybrid search runs a dense ANN search and a sparse search (BM25 or SPLADE, from [Part 2](vector-databases-part2.md)) against the same query, independently, and needs to merge two ranked lists into one final ranking. This is harder than it sounds because the two lists' scores aren't comparable — a cosine similarity of 0.82 and a BM25 score of 14.3 don't live on the same scale, and naively averaging them either requires ad-hoc normalization or produces meaningless results.
 
-- **How this actually gets wired up in a real system.** "Dense search" and "sparse search" aren't two separate databases bolted together — in a system like Qdrant, a single point (§3 of Part 1's anatomy) can carry both a dense vector and a sparse vector as two differently-named vectors on the same record. One write populates both indexes; one query can ask for results from both named vectors and fuse them, either inside the database itself or in the application layer that calls it. The two-searches-then-fuse picture in this section is the logical shape of hybrid search — the infrastructure underneath it is one collection, not two.
+- **How this actually gets wired up in a real system.** "Dense search" and "sparse search" aren't two separate databases bolted together — in a system like Qdrant, a single stored record (Qdrant calls it a "point," extending the storage unit Part 1 described in its anatomy section) can carry both a dense vector and a sparse vector as two differently-named vectors on the same record. One write populates both indexes; one query can ask for results from both named vectors and fuse them, either inside the database itself or in the application layer that calls it. The two-searches-then-fuse picture in this section is the logical shape of hybrid search — the infrastructure underneath it is one collection, not two.
 
 - **Reciprocal rank fusion (RRF) sidesteps the scale problem entirely by discarding scores and using rank instead.** For each document, RRF computes a fused score as the sum, across all the ranked lists it appears in, of `1 / (k + rank)`, where `rank` is that document's position in a given list (1st, 2nd, 3rd...) and `k` is a small constant (commonly 60) that dampens the impact of very high ranks so the method isn't dominated by whichever single list ranked something first.
   - A document that ranks highly in *both* the dense and sparse lists accumulates a high fused score from both terms; a document that ranks well in only one list still contributes, just less.
