@@ -64,6 +64,60 @@ Compression (quantization) and combining dense with sparse search (hybrid search
 
   **BM25, in plain terms.** Imagine grading how well a book matches your search by three simple rules any librarian would intuit without a computer. First, if the book mentions your search word a lot, it's probably relevant — but the 10th mention doesn't excite you as much as the 1st did, so the score for repetition levels off (**term frequency**). Second, if your search word is "the," it's in every book, so it tells you nothing — but if it's "photosynthesis," and only three books in the whole library use that word, finding it is a strong signal (**inverse document frequency**). Third, a one-page pamphlet that happens to say your word once is a stronger match than a 900-page encyclopedia that says it once, just by proportion (**length normalization**). BM25 is just those three intuitions, turned into a formula and run automatically over every document.
 
+- **BM25 in code — small enough to score a toy corpus by hand.** No library, no training step — just tokenizing and a formula.
+
+```python
+import math
+
+corpus = {
+    "troubleshooting_transactions": "troubleshooting failed transactions payment declined error",
+    "reset_password": "resetting your password account security",
+    "shipping_address": "updating your shipping address profile settings",
+    "resolving_e4471": "resolving error e4471 payment gateway failure",
+    "refund_policy": "refund policy overview payment terms",
+}
+
+def tokenize(text):
+    return text.lower().split()
+
+docs = {doc_id: tokenize(text) for doc_id, text in corpus.items()}
+N = len(docs)
+avgdl = sum(len(d) for d in docs.values()) / N
+
+def idf(term):
+    n_qi = sum(1 for d in docs.values() if term in d)
+    return math.log((N - n_qi + 0.5) / (n_qi + 0.5) + 1)
+
+def bm25_score(query_terms, doc_id, k1=1.5, b=0.75):
+    doc = docs[doc_id]
+    dl = len(doc)
+    score = 0.0
+    for term in query_terms:
+        f = doc.count(term)
+        if f == 0:
+            continue
+        numerator = f * (k1 + 1)
+        denominator = f + k1 * (1 - b + b * dl / avgdl)
+        score += idf(term) * (numerator / denominator)
+    return score
+
+query = tokenize("payment declined error")
+for doc_id in sorted(docs, key=lambda d: bm25_score(query, d), reverse=True):
+    print(f"{bm25_score(query, doc_id):.4f}  {doc_id}")
+```
+
+- Running this (verified by executing it, not hand-computed) prints:
+  ```
+  2.7135  troubleshooting_transactions
+  1.3704  resolving_e4471
+  0.5663  refund_policy
+  0.0000  reset_password
+  0.0000  shipping_address
+  ```
+  - The two documents that share zero query terms with "payment declined error" score exactly `0.0000` — not a small number, exactly zero, because BM25 has no mechanism for partial credit on words that never appear (see §4's typo caveat, though — this is also the exact behavior that trips it up).
+  - `troubleshooting_transactions` wins because it's the only document containing all three query terms, but IDF is already doing quiet work underneath: "declined" (IDF ≈ 1.39, present in only 1 of 5 documents) counts for more than "payment" (IDF ≈ 0.54, present in 3 of 5), even though both appear the same number of times in the winning document. That's inverse document frequency in action, not just term frequency.
+  - `resolving_e4471` scores second purely because it happens to also contain "payment" and "error" — a preview of [Part 3](vector-databases-part3.md)'s worked example, where a document that owns the rare exact term ("E-4471") but is thin on the common ones can still win outright once the query itself centers on the rare term.
+
 - **This is exactly the "weight" that turns a document into a sparse vector.** Each vocabulary term is a dimension; BM25 provides the formula for the non-zero weight on the terms actually present in a document. Framed this way, BM25 isn't a separate system bolted onto vector search — it's one specific, unlearned way of producing the sparse vectors described in §1.
 
 - **Why it's still standard infrastructure decades after Word2vec.** BM25 has none of the failure modes a dense embedding has:
