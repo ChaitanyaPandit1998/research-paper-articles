@@ -29,7 +29,8 @@ A vector database stores high-dimensional numeric vectors — usually embeddings
 7. [Alternatives and relatives](#7-alternatives-and-relatives)
 8. [Summary table](#8-summary-table)
 9. [Key takeaways](#9-key-takeaways)
-10. [Further reading](#10-further-reading)
+10. [Qdrant implementation notes](#10-qdrant-implementation-notes)
+11. [Further reading](#11-further-reading)
 
 ---
 
@@ -307,12 +308,38 @@ Vector search is the dominant approach to semantic retrieval today, but it sits 
 - **The embedding model and the vector database are separate concerns.** A fast index over a bad embedding space returns fast, irrelevant results; a great embedding model without a scalable index doesn't survive contact with a large collection.
 - **Metadata filtering is harder than it looks** — naively combining structured filters with ANN search can silently return fewer than *k* results or blow up latency, depending on filter selectivity and when the filter gets applied.
 - **Semantic search doesn't replace exact match.** Queries that need precision — IDs, exact phrases, specific numeric values — are often better served by keyword or hybrid search than by nearest-neighbor search alone.
+- **Dense and sparse retrieval carry different correctness guarantees.** HNSW over dense vectors is approximate, so recall must be measured and tuned; sparse inverted-index retrieval calculates the exact dot product over matching non-zero dimensions. Hybrid search deliberately combines both behaviors rather than treating them as interchangeable.
 - **Staleness is a real operational hazard.** Unlike a keyword index over live text, a stored embedding doesn't update itself when the underlying content changes — someone has to re-embed and re-index deliberately.
 - **A vector database is a search mechanism, not a relevance guarantee.** Whether the top-*k* results are actually *useful* for a given task is a property of the whole pipeline — embeddings, index, filtering, and often a downstream model reading the results — not something the database alone can certify.
 
 ---
 
-## 10. Further reading
+## 10. Qdrant implementation notes
+
+The earlier sections describe the general machinery. Qdrant makes the storage and operational choices concrete.
+
+- **A Qdrant point has an ID, one or more vectors, and optional payload.** The ID identifies the record; vectors determine similarity; payload is structured metadata used for filtering and application logic. A point can hold a dense text vector, an image vector, and a sparse lexical vector under separate names, with one shared payload.
+  - **Dense vectors** are fixed-length embeddings. Their dimensionality is a capacity decision: a 1,536-dimension Float32 vector is roughly 6 KB, so one million raw vectors take roughly 6 GB before index overhead.
+  - **Sparse vectors** contain parallel `indices` and `values` arrays for non-zero dimensions. Their dot-product search uses an inverted index and is exact; [Part 2](vector-databases-part2.md) explains why that is structurally different from an HNSW search.
+  - **Multivectors** attach a matrix of fixed-width vectors to one point, useful for late-interaction models such as ColBERT.
+  - **Named vectors** explicitly separate incompatible vector spaces. In a hybrid setup, a `text` dense vector and a `text-sparse` vector belong on the same point, but must be queried by their respective names.
+
+- **Payload is where structured constraints belong.** Use it for fields such as a tenant ID, category, language, publication date, price, tag, and geographic location—not the embedding itself. Qdrant supports `must` (AND), `should` (OR), and `must_not` (NOT) clauses. Create payload indexes for fields queried often, particularly selective tenant or authorization fields.
+  - For arrays of objects, use a nested filter when multiple conditions must apply to the **same** object. Otherwise, a filter for a verified five-star review can accidentally combine `verified` from one review with `rating = 5` from another.
+
+- **HNSW has three distinct Qdrant controls.** `m` sets the graph's maximum links per node: increasing it generally increases recall and RAM use. `ef_construct` controls how many candidates are considered while the graph is built: increasing it improves graph quality but slows indexing. `hnsw_ef` controls candidates explored at search time: increasing it generally improves recall but adds query latency.
+  - A reasonable initial configuration is `m=16`, `ef_construct=200`, and a query-time `hnsw_ef` chosen from benchmarked recall/latency results. Increase `hnsw_ef` first when recall is poor; raise `m` or `ef_construct` only when the graph itself needs to improve.
+  - `full_scan_threshold` lets Qdrant prefer brute-force search below a configured size, which is often faster for small collections or segments. Setting it to zero forces HNSW and is useful for a controlled benchmark, not necessarily for production.
+
+- **Configured is not the same as indexed.** Index building is asynchronous. Use `get_collection` to inspect `indexed_vectors_count` and collection status: `YELLOW` means optimization is in progress, while `GREEN` indicates normal indexed readiness. When filtered queries are slow, check that the relevant payload indexes exist and were present before the HNSW graph was built.
+
+> **Operational rule.** Optimize against a measured target such as Recall@10 at a p95 latency budget. Bigger HNSW settings are not inherently better; they simply spend more memory, index-build time, or query time for potentially higher recall.
+
+> **Production checklist.** Measure **Recall@k**, **p95 latency**, **`indexed_vectors_count`**, and **filtered-query performance** together. A graph that looks excellent on unfiltered queries can behave quite differently when a selective payload filter changes Qdrant's query plan.
+
+---
+
+## 11. Further reading
 
 - **"Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs"** (Malkov & Yashunin, 2016) — the original HNSW paper, the algorithm behind most production vector database indexes today: arxiv.org/abs/1603.09320
   - For a gentler run-up to that paper: Pinecone's ["Hierarchical Navigable Small Worlds (HNSW)"](https://www.pinecone.io/learn/series/faiss/hnsw/) walks through the layered-graph intuition with diagrams before getting into the algorithmic detail.

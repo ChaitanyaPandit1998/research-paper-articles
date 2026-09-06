@@ -106,6 +106,8 @@
 
 - **The cost of hybrid search is running two retrieval paths per query instead of one** — both the dense ANN search and the sparse inverted-index search have to execute, and their results have to be merged, before a response is ready. Part 1 flagged this same tradeoff in its "Alternatives and relatives" section; RRF is the specific mechanism that makes paying that cost worthwhile, by making the merge step cheap and robust once both searches have already run.
 
+> **Operational rule.** Keep the dense embedding, sparse representation, and payload synchronized when a document changes. Re-embedding without refreshing sparse terms—or the reverse—means the two legs of a hybrid query rank different versions of the same document, a form of staleness that can quietly degrade retrieval quality.
+
 - **RRF in code — small enough to run by hand.** The whole method is a handful of lines; there's no library required to see how it behaves on the two ranked lists from the diagram above.
 
 ```python

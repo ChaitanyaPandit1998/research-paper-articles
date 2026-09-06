@@ -24,9 +24,10 @@ Compression (quantization) and combining dense with sparse search (hybrid search
 2. [BM25: lexical scoring that never went away](#2-bm25-lexical-scoring-that-never-went-away)
 3. [SPLADE: learned sparse retrieval](#3-splade-learned-sparse-retrieval)
 4. [What sparse retrieval alone doesn't solve](#4-what-sparse-retrieval-alone-doesnt-solve)
-5. [Summary table](#5-summary-table)
-6. [Key takeaways](#6-key-takeaways)
-7. [Further reading](#7-further-reading)
+5. [Qdrant sparse-vector configuration](#5-qdrant-sparse-vector-configuration)
+6. [Summary table](#6-summary-table)
+7. [Key takeaways](#7-key-takeaways)
+8. [Further reading](#8-further-reading)
 
 ---
 
@@ -109,7 +110,43 @@ Compression (quantization) and combining dense with sparse search (hybrid search
 
 ---
 
-## 5. Summary table
+## 5. Qdrant sparse-vector configuration
+
+Qdrant stores a sparse vector as the non-zero `(index, value)` pairs rather than as its full mostly-zero array. In the Python client, the two parallel arrays are called `indices` and `values`; they must have equal length, and indices must be unique within a vector. The indices identify the vector's own non-zero dimensions—they are not the inverted index itself.
+
+```python
+models.SparseVector(
+    indices=[6, 7],
+    values=[1.0, 2.0],
+)
+```
+
+The **inverted index** is the separate structure that maps each dimension to every point in which it is non-zero. It lets Qdrant retrieve overlapping candidates and calculate the exact dot product without scanning unrelated points.
+
+- Sparse vectors are configured under a **name** because they are not Qdrant's default vector type. Their size is variable and their distance metric is always dot product.
+- A sparse-vector index can use `full_scan_threshold` to compare directly below a chosen point count, `on_disk` to trade RAM for I/O, and `datatype` (`uint8`, `float16`, or `float32`) to trade indexed weight precision for memory. Begin with defaults and change them only in response to measurement.
+- A single Qdrant point can hold both a sparse and dense vector under different names. [Part 3](vector-databases-part3.md) shows how those two retrieval paths are fused for hybrid search.
+
+```python
+client.create_collection(
+    collection_name="knowledge_base",
+    sparse_vectors_config={
+        "text-sparse": models.SparseVectorParams(
+            index=models.SparseIndexParams(
+                full_scan_threshold=0,
+                on_disk=False,
+                datatype=models.VectorStorageDatatype("float32"),
+            )
+        )
+    },
+)
+```
+
+> **Worth remembering.** Sparse-vector indices identify dimensions with unsigned 32-bit integers. The vector's indices say which features the point has; the inverted index says which points have each feature.
+
+---
+
+## 6. Summary table
 
 | Concept | What it means | Where it lives |
 |---|---|---|
@@ -119,7 +156,7 @@ Compression (quantization) and combining dense with sparse search (hybrid search
 
 ---
 
-## 6. Key takeaways
+## 7. Key takeaways
 
 - **Dense and sparse vectors solve different problems, not competing versions of the same problem** — dense vectors bridge vocabulary gaps via learned semantic similarity, sparse vectors preserve exact terms via inverted-index matching, and production systems increasingly use both rather than choosing.
 - **BM25 is a formula, not a model** — no training, fully interpretable, and still the right tool whenever exact-match precision matters more than semantic reach.
@@ -128,7 +165,7 @@ Compression (quantization) and combining dense with sparse search (hybrid search
 
 ---
 
-## 7. Further reading
+## 8. Further reading
 
 - **"Okapi at TREC-3"** (Robertson, Walker, Jones, Hancock-Beaulieu & Gatford, 1994) — the paper that introduced the BM25 ranking function still in wide production use today: [trec.nist.gov/pubs/trec3/papers/city.ps.gz](https://trec.nist.gov/pubs/trec3/papers/city.ps.gz)
 
