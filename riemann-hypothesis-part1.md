@@ -83,7 +83,15 @@ The Riemann Hypothesis states that every nontrivial zero lies on the critical li
 
 *The setup just before I clicked Help me understand. The passage is in the Documentation tab, with the audience set to Beginner and the depth set to Step-by-step.*
 
-The follow-up answer pointed me to three lines.
+![Understand’s Direct walkthrough explaining the critical strip and centre line, with a citation to lines 3–4](riemann-hypothesis-assets/direct-explanation.png)
+
+*In Direct mode, Understand explains why the line runs vertically. Every point on it has the same horizontal position, ½, even as its height changes.*
+
+![The follow-up question about a zero inside the strip but off the line, with Understand’s full answer and its citation to lines 3–5](riemann-hypothesis-assets/follow-up-answer.png)
+
+*I asked about a possible zero off the line. Understand answered and linked back to the three lines that support its reasoning.*
+
+Here’s how those three lines fit together.
 
 - **Line 3** puts nontrivial zeros inside the strip, between 0 and 1. A zero at ¾ would fit that rule.
 - **Line 4** puts the critical line at ½, so the spot at ¾ is off the line.
