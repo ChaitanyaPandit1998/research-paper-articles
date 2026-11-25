@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1440" height="900" viewBox="0 0 1440 900">
+  <title>Understand / Generation workflows</title>
+  <g id="Layer_1" data-name="Layer 1">
+    <rect x="0" y="0" width="1440" height="900" fill="#f8f5ed"/>
+    <rect x="46" y="43" width="38" height="5" fill="#176653"/>
+    <text transform="matrix(1 0 0 1 96 52)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="18" fill="#176653"><tspan x="0" y="0">UNDERSTAND  /  ARCHITECTURE</tspan></text>
+    <text transform="matrix(1 0 0 1 1393 52)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="18" fill="#405a50" text-anchor="end"><tspan x="0" y="0">WORKFLOW DETAIL</tspan></text>
+    <text transform="matrix(1 0 0 1 44 120)" x="0" y="0" xml:space="preserve" font-family="Georgia, serif" font-size="61" fill="#172d27"><tspan x="0" y="0">How Understand generates</tspan></text>
+    <text transform="matrix(1 0 0 1 48 160)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="24" fill="#405a50"><tspan x="0" y="0">Two separate paths: a reviewed explanation, then an optional illustration.</tspan></text>
+    <rect x="46" y="200" width="1348" height="344" fill="#eaf0e8" stroke="#b9c9bb" stroke-width="1.25" stroke-miterlimit="10"/>
+    <rect x="46" y="200" width="1348" height="48" fill="#d8e9de"/>
+    <text transform="matrix(1 0 0 1 68 231)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="19" fill="#15473c"><tspan x="0" y="0">01  /  EXPLANATION</tspan></text>
+    <text transform="matrix(1 0 0 1 1146 269)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#176653" text-anchor="middle"><tspan x="0" y="0">Direct path when no revision is requested</tspan></text>
+    <g>
+      <g>
+        <path d="M293 336.75 L332 336.75 L332 339.25 L293 339.25 Z" fill="#176653"/>
+        <path d="M337 338 L327 343 L327 333 Z" fill="#176653"/>
+      </g>
+    </g>
+    <g>
+      <g>
+        <path d="M562 336.75 L601 336.75 L601 339.25 L562 339.25 Z" fill="#176653"/>
+        <path d="M606 338 L596 343 L596 333 Z" fill="#176653"/>
+      </g>
+    </g>
+    <g>
+      <g>
+        <path d="M831 336.75 L870 336.75 L870 339.25 L831 339.25 Z" fill="#176653"/>
+        <path d="M875 338 L865 343 L865 333 Z" fill="#176653"/>
+      </g>
+    </g>
+    <g>
+      <g>
+        <path d="M1100 336.75 L1139 336.75 L1139 339.25 L1100 339.25 Z" fill="#176653"/>
+        <path d="M1144 338 L1134 343 L1134 333 Z" fill="#176653"/>
+      </g>
+    </g>
+    <rect x="68" y="285" width="225" height="107" fill="#fffdf8" stroke="#b9c9bb" stroke-width="1.25" stroke-miterlimit="10"/>
+    <text transform="matrix(1 0 0 1 84 319)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="25" fill="#172d27"><tspan x="0" y="0">Input</tspan></text>
+    <text transform="matrix(1 0 0 1 84 349)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">Source and preferences</tspan></text>
+    <text transform="matrix(1 0 0 1 84 374)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">from the workspace</tspan></text>
+    <rect x="337" y="285" width="225" height="107" fill="#fffdf8" stroke="#b9c9bb" stroke-width="1.25" stroke-miterlimit="10"/>
+    <text transform="matrix(1 0 0 1 353 319)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="25" fill="#172d27"><tspan x="0" y="0">Generate draft</tspan></text>
+    <text transform="matrix(1 0 0 1 353 349)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">Codex follows the</tspan></text>
+    <text transform="matrix(1 0 0 1 353 374)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">explanation skill</tspan></text>
+    <rect x="606" y="285" width="225" height="107" fill="#fffdf8" stroke="#b9c9bb" stroke-width="1.25" stroke-miterlimit="10"/>
+    <text transform="matrix(1 0 0 1 622 319)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="25" fill="#172d27"><tspan x="0" y="0">Validate JSON</tspan></text>
+    <text transform="matrix(1 0 0 1 622 349)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">Check fields, references,</tspan></text>
+    <text transform="matrix(1 0 0 1 622 374)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">and diagram structure</tspan></text>
+    <rect x="875" y="285" width="225" height="107" fill="#15473c"/>
+    <text transform="matrix(1 0 0 1 891 319)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="25" fill="#f7f7e9"><tspan x="0" y="0">Review</tspan></text>
+    <text transform="matrix(1 0 0 1 891 349)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#cee5d7"><tspan x="0" y="0">Check against the</tspan></text>
+    <text transform="matrix(1 0 0 1 891 374)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#cee5d7"><tspan x="0" y="0">source and request</tspan></text>
+    <rect x="1144" y="285" width="225" height="107" fill="#fffdf8" stroke="#b9c9bb" stroke-width="1.25" stroke-miterlimit="10"/>
+    <text transform="matrix(1 0 0 1 1160 319)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="25" fill="#172d27"><tspan x="0" y="0">Chapter reader</tspan></text>
+    <text transform="matrix(1 0 0 1 1160 349)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">Show the explanation</tspan></text>
+    <text transform="matrix(1 0 0 1 1160 374)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">and review status</tspan></text>
+    <g>
+      <g>
+        <path d="M988 392 L988 422 L986 422 L986 392 Z" fill="#96451e"/>
+        <path d="M987 426 L983 418 L991 418 Z" fill="#96451e"/>
+      </g>
+    </g>
+    <g>
+      <g>
+        <path d="M1100 464 L1140 464 L1140 466 L1100 466 Z" fill="#96451e"/>
+        <path d="M1144 465 L1136 469 L1136 461 Z" fill="#96451e"/>
+      </g>
+    </g>
+    <g>
+      <g>
+        <path d="M1255 426 L1255 396 L1257 396 L1257 426 Z" fill="#96451e"/>
+        <path d="M1256 392 L1260 400 L1252 400 Z" fill="#96451e"/>
+      </g>
+    </g>
+    <rect x="875" y="426" width="225" height="77" fill="#f9eee2" stroke="#d5b9a3" stroke-width="1.25" stroke-miterlimit="10"/>
+    <rect x="1144" y="426" width="225" height="77" fill="#f9eee2" stroke="#d5b9a3" stroke-width="1.25" stroke-miterlimit="10"/>
+    <text transform="matrix(1 0 0 1 892 456)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="23" fill="#172d27"><tspan x="0" y="0">Repair once</tspan></text>
+    <text transform="matrix(1 0 0 1 892 483)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="15" fill="#96451e"><tspan x="0" y="0">If review requests revision</tspan></text>
+    <text transform="matrix(1 0 0 1 1161 456)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="23" fill="#172d27"><tspan x="0" y="0">Final review</tspan></text>
+    <text transform="matrix(1 0 0 1 1161 483)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="15" fill="#96451e"><tspan x="0" y="0">Report remaining concerns</tspan></text>
+    <text transform="matrix(1 0 0 1 68 523)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="17" fill="#405a50"><tspan x="0" y="0">If review cannot finish, keep the latest valid result and disclose the gap.</tspan></text>
+    <rect x="46" y="568" width="1348" height="240" fill="#eaf0e8" stroke="#b9c9bb" stroke-width="1.25" stroke-miterlimit="10"/>
+    <rect x="46" y="568" width="1348" height="48" fill="#d8e9de"/>
+    <text transform="matrix(1 0 0 1 68 599)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="19" fill="#15473c"><tspan x="0" y="0">02  /  VISUAL DESIGN</tspan></text>
+    <text transform="matrix(1 0 0 1 1371 599)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#176653" text-anchor="end"><tspan x="0" y="0">ON REQUEST</tspan></text>
+    <g>
+      <g>
+        <path d="M293 686.75 L332 686.75 L332 689.25 L293 689.25 Z" fill="#176653"/>
+        <path d="M337 688 L327 693 L327 683 Z" fill="#176653"/>
+      </g>
+    </g>
+    <g>
+      <g>
+        <path d="M562 686.75 L601 686.75 L601 689.25 L562 689.25 Z" fill="#176653"/>
+        <path d="M606 688 L596 693 L596 683 Z" fill="#176653"/>
+      </g>
+    </g>
+    <g>
+      <g>
+        <path d="M831 686.75 L870 686.75 L870 689.25 L831 689.25 Z" fill="#176653"/>
+        <path d="M875 688 L865 693 L865 683 Z" fill="#176653"/>
+      </g>
+    </g>
+    <g>
+      <g>
+        <path d="M1100 686.75 L1139 686.75 L1139 689.25 L1100 689.25 Z" fill="#176653"/>
+        <path d="M1144 688 L1134 693 L1134 683 Z" fill="#176653"/>
+      </g>
+    </g>
+    <rect x="68" y="635" width="225" height="107" fill="#fffdf8" stroke="#b9c9bb" stroke-width="1.25" stroke-miterlimit="10"/>
+    <text transform="matrix(1 0 0 1 84 669)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="25" fill="#172d27"><tspan x="0" y="0">Design choices</tspan></text>
+    <text transform="matrix(1 0 0 1 84 699)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">Explanation or chapter,</tspan></text>
+    <text transform="matrix(1 0 0 1 84 724)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">style and teaching goal</tspan></text>
+    <rect x="337" y="635" width="225" height="107" fill="#fffdf8" stroke="#b9c9bb" stroke-width="1.25" stroke-miterlimit="10"/>
+    <text transform="matrix(1 0 0 1 353 669)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="25" fill="#172d27"><tspan x="0" y="0">Visual brief</tspan></text>
+    <text transform="matrix(1 0 0 1 353 699)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">What the image should</tspan></text>
+    <text transform="matrix(1 0 0 1 353 724)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">teach and show</tspan></text>
+    <rect x="606" y="635" width="225" height="107" fill="#fffdf8" stroke="#b9c9bb" stroke-width="1.25" stroke-miterlimit="10"/>
+    <text transform="matrix(1 0 0 1 622 669)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="25" fill="#172d27"><tspan x="0" y="0">Drawing plan</tspan></text>
+    <text transform="matrix(1 0 0 1 622 699)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">Codex composes;</tspan></text>
+    <text transform="matrix(1 0 0 1 622 724)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">app validates the scene</tspan></text>
+    <rect x="875" y="635" width="225" height="107" fill="#15473c"/>
+    <text transform="matrix(1 0 0 1 891 669)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="25" fill="#f7f7e9"><tspan x="0" y="0">Render PNG</tspan></text>
+    <text transform="matrix(1 0 0 1 891 699)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#cee5d7"><tspan x="0" y="0">VectorCraft draws</tspan></text>
+    <text transform="matrix(1 0 0 1 891 724)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#cee5d7"><tspan x="0" y="0">the validated scene</tspan></text>
+    <rect x="1144" y="635" width="225" height="107" fill="#fffdf8" stroke="#b9c9bb" stroke-width="1.25" stroke-miterlimit="10"/>
+    <text transform="matrix(1 0 0 1 1160 669)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="25" fill="#172d27"><tspan x="0" y="0">Preview</tspan></text>
+    <text transform="matrix(1 0 0 1 1160 699)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">Place inline, download,</tspan></text>
+    <text transform="matrix(1 0 0 1 1160 724)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="16" fill="#405a50"><tspan x="0" y="0">or use in PDF export</tspan></text>
+    <text transform="matrix(1 0 0 1 68 786)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="17" fill="#405a50"><tspan x="0" y="0">Only renderable briefs continue to drawing. Cloudflare covers use a separate path.</tspan></text>
+    <line x1="46" y1="834" x2="1394" y2="834" fill="none" stroke="#b9c9bb" stroke-miterlimit="10"/>
+    <text transform="matrix(1 0 0 1 46 869)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="19" fill="#405a50"><tspan x="0" y="0">Model review is a check, not a guarantee of correctness.</tspan></text>
+    <g>
+      <g>
+        <path d="M1047 861 L1076 861 L1076 863 L1047 863 Z" fill="#96451e"/>
+        <path d="M1080 862 L1072 866 L1072 858 Z" fill="#96451e"/>
+      </g>
+    </g>
+    <text transform="matrix(1 0 0 1 1090 869)" x="0" y="0" xml:space="preserve" font-family="&apos;Avenir Next&apos;, sans-serif" font-size="19" fill="#96451e"><tspan x="0" y="0">Conditional repair path</tspan></text>
+  </g>
+</svg>
