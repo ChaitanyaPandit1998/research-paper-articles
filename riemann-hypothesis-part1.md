@@ -36,7 +36,9 @@ The Riemann Hypothesis gives us a timely way to try that. After seeing the headl
 
 ## 2. Why I chose the Riemann Hypothesis
 
-On November 20, 2026, mathematician Levent Alpöge announced that he and Claude had found a proof of the Riemann Hypothesis. He released the argument in Lean, a proof assistant that checks whether a formal argument establishes a precisely stated theorem. Researchers at MIT and the University of Waterloo reported successful machine checks, including checks with independently written proof checkers. As of November 24, the Clay Mathematics Institute lists the Riemann Hypothesis under **Active problems** on its Millennium Prize overview and labels the dedicated page **Active**. [Alpöge’s announcement](https://alpo.ge/remark.pdf) · [MIT verification record](https://math.mit.edu/~drew/grh/) · [Waterloo verification report](https://www.math.uwaterloo.ca/~mrubinst/alpoge_claude_grh/) · [Clay’s problem page](https://www.claymath.org/millennium/Riemann-Hypothesis/) · [Clay’s Millennium Prize overview](https://www.claymath.org/millennium-problems/)
+- **The announcement.** On November 20, 2026, mathematician Levent Alpöge announced that he and Claude had found a proof. He released the argument in Lean, a tool that checks whether a formal argument establishes a precisely stated theorem. [Alpöge’s announcement](https://alpo.ge/remark.pdf)
+- **The machine checks.** Researchers at MIT and the University of Waterloo reported successful checks, including checks with independently written proof checkers. [MIT verification record](https://math.mit.edu/~drew/grh/) · [Waterloo verification report](https://www.math.uwaterloo.ca/~mrubinst/alpoge_claude_grh/)
+- **Clay’s listing.** As of November 24, the Clay Mathematics Institute lists the hypothesis under **Active problems** on its Millennium Prize overview and labels the dedicated page **Active**. [Clay’s problem page](https://www.claymath.org/millennium/Riemann-Hypothesis/) · [Clay’s Millennium Prize overview](https://www.claymath.org/millennium-problems/)
 
 I could follow the news about the proof and still struggle to explain the statement being proved. To understand it, I started with a picture of where the zeros in the hypothesis could lie.
 
@@ -63,7 +65,11 @@ When I asked Understand what a nontrivial zero inside the strip but off the line
 
 > A single nontrivial zero off the critical line would disprove the Riemann Hypothesis.
 
-I had opened **Documentation**, pasted the five lines below, chosen **Beginner** and **Step-by-step**, and clicked **Help me understand**.
+Here’s how I set up the run.
+
+1. Open **Documentation** and paste the five-line passage below.
+2. Choose **Beginner** and **Step-by-step**.
+3. Click **Help me understand**.
 
 ```text
 A zero of the Riemann zeta function is a complex number s for which ζ(s) = 0.
@@ -73,7 +79,11 @@ The critical line is the vertical line Re(s) = 1/2, halfway across the strip.
 The Riemann Hypothesis states that every nontrivial zero lies on the critical line.
 ```
 
-The follow-up answer pointed me to lines 3–5. Line 3 says the nontrivial zeros are between 0 and 1, so a point at ¾ fits that rule. Line 4 puts the critical line at ½. Line 5 says **every** nontrivial zero lies on that line. That word does the work. One zero at ¾ would be enough to refute the claim. I could also open line 5 directly from the citation in the **Key ideas** chapter, as shown at the start of the article.
+The follow-up answer pointed me to three lines.
+
+- **Line 3** puts nontrivial zeros inside the strip, between 0 and 1. A zero at ¾ would fit that rule.
+- **Line 4** puts the critical line at ½, so the spot at ¾ is off the line.
+- **Line 5** says **every** nontrivial zero lies on that line. One zero at ¾ would be enough to refute the claim. I could also open line 5 from the citation in the **Key ideas** chapter, as shown at the start of the article.
 
 I switched the same chapter from **Direct** to **Story**. In *The Zero Marks on Mira’s Map*, Mira puts a pin wherever an imaginary reader displays zero. The **What this represents** panel maps each part of the scene to the math. The spot on the map is the input s, the reading is ζ(s), and the pin marks a spot where that reading is zero.
 
@@ -87,13 +97,19 @@ The last scene is where Mira points to the spot at ¾. I used **Illustrate this 
 
 *The illustration appears directly under Mira’s scene in Story Mode. The question mark at ¾ shows where a hypothetical counterexample could lie.* [View the full-size VectorCraft illustration](riemann-hypothesis-assets/vectorcraft-miras-map.png)
 
-To try it yourself, clone the repository and open `code-understanding-tool`. Run `npm install`, then `npm run dev`. Generation uses your signed-in Codex CLI and may send the submitted material to its configured service. [Understand source code on GitHub](https://github.com/ChaitanyaPandit1998/gpt-under-the-hood/tree/main/code-understanding-tool)
+To try it yourself, [open the project on GitHub](https://github.com/ChaitanyaPandit1998/gpt-under-the-hood/tree/main/code-understanding-tool) and follow these steps.
+
+1. Clone the repository and open `code-understanding-tool`.
+2. Run `npm install` to install the dependencies.
+3. Run `npm run dev` to start the app.
+
+Generation uses your signed-in Codex CLI and may send the submitted material to its configured service.
 
 ## 5. Where the explanation needed checking
 
-One draft diagram labelled the critical strip but drew only the critical line. I revised it to shade the region between 0 and 1 and show the line at ½. I also removed the word “unproved” from the image labels because the five-line passage never discussed the status of the proof.
-
-In an earlier Story Mode run, the app described a half-turn around the wrong centre. The story had passed the app’s review. Comparing the description with the transformation exposed the error.
+- **The missing strip.** One draft diagram labelled the critical strip but drew only the critical line. I shaded the region between 0 and 1 and kept the line at ½.
+- **A claim beyond the source.** The image labels said “unproved.” I removed that word because the five-line passage never discussed the status of the proof.
+- **The wrong centre.** In an earlier Story Mode run, the app described a half-turn around the wrong centre. The story passed the app’s review. Comparing the description with the rotation exposed the error.
 
 That’s part of what I wanted from Understand. For the story, I could compare the description with the math it represented. For the diagram, I could check whether the picture showed both things the explanation described. In each case, I had something specific to verify.
 
@@ -101,25 +117,33 @@ That’s part of what I wanted from Understand. For the story, I could compare t
 
 The Riemann Hypothesis was my test case. The same reading process applies to the material we work with every day. Start with the passage, function, or diff in front of you and ask one question about it.
 
-| What you’re reading | A question to start with | What to do in Understand |
-| --- | --- | --- |
-| **Documentation** | In a cache-aside system, what happens on a cache miss? When does the cache get invalidated? | Paste the relevant passage. Trace the sequence in the explanation and open a citation to see what the source says about invalidation. |
-| **Unfamiliar code** | When does this retry function make another attempt, and when does it throw? | Paste the function. Read the walkthrough and, if the app generates a diagram, follow each branch back to the condition in the code. |
-| **A public GitHub pull request** | Which change affects behavior, and which patch shows it? | Load the PR and generate an explanation for the chapter you care about. Check the pinned revision and file list to see which patches the app had available. |
+- **Documentation.** Ask what happens on a cache miss or when the cache gets invalidated. Paste the relevant passage and open a citation to check the sequence.
+- **Unfamiliar code.** Ask when a retry function makes another attempt and when it throws. Read the walkthrough and, if the app generates a diagram, trace each branch back to the condition in the code.
+- **A public GitHub pull request.** Ask which change affects behavior and which patch shows it. Generate an explanation for the chapter you care about, then check the pinned revision and file list to see which patches were available.
+- **A screenshot.** Upload it and correct the extracted text before asking for an explanation.
 
-If the material is in a screenshot, you can upload it and correct the extracted text before asking for an explanation. Choose **Start a quick check** for three questions about what you just read, or save the study locally and come back to it later.
+Choose **Start a quick check** for three questions about what you just read, or save the study locally and come back to it later.
 
 ## 7. How Understand works
 
-Understand runs as a React app in the browser and talks to a Vite API on the same machine. When I clicked **Help me understand**, the browser sent the five-line passage, my audience level, and my chosen depth to that API. While the API was working, the browser polled it for progress. The original request returned the completed explanation. Explicitly saved studies stay in the browser’s IndexedDB.
+Understand runs as a React app in the browser and talks to a Vite API on the same machine. Explicitly saved studies stay in the browser’s IndexedDB.
 
 ![System overview showing the React workspace and browser storage, the local Vite API and command-line tools, and outbound calls to the model service, GitHub, and Cloudflare](riemann-hypothesis-assets/understand-architecture.png)
 
 *The overview shows where each step runs. The numbered path follows an explanation request. The branches show browser storage, on-demand exports, and calls to external services.*
 
-The API loads instructions for the explanation task and passes them with the source to Codex CLI, which can call its configured model service. Codex returns a JSON draft with sections and source line ranges. The API validates the draft, then runs a separate review against the source. If the review requests changes, the app makes one repair attempt and reviews the result again. If review can’t finish, the app keeps the latest structurally valid result and shows that the review is incomplete. The browser turns the result into chapters and uses the returned ranges to highlight the cited lines.
+**From source text to a cited explanation**
 
-**Story** requests an analogy for the selected chapter. Illustrating it is a separate workflow. For Mira’s scene, I chose **Story illustration**, then clicked **Generate visual brief** and **Render image**. Codex produced the brief and drawing plan in separate requests. The app checked the plan, then VectorCraft rendered the PNG and the browser showed it inline. A brief can also recommend keeping the idea in text, in which case the workflow stops before drawing. [Architecture guide on GitHub](https://github.com/ChaitanyaPandit1998/gpt-under-the-hood/blob/main/code-understanding-tool/docs/architecture.md)
+1. **Send the request.** When I clicked **Help me understand**, the browser sent the passage, audience level, and reading depth to the API. It checked for progress while the original request stayed open.
+2. **Generate a draft.** The API sent the source and task instructions to Codex CLI, which can call its configured model service. Codex returned a JSON draft with sections and source line ranges.
+3. **Validate and review.** The API checked the draft’s structure and separately reviewed it against the source. If the review asked for changes, the app made one repair attempt and reviewed it again. If review couldn’t finish, the app kept the latest structurally valid result and showed that the review was incomplete.
+4. **Show the result.** The original request returned the completed explanation. The browser displayed it as chapters and used the line ranges to highlight the cited source text.
+
+**From a story scene to an illustration**
+
+1. Choose **Story** to request an analogy for the selected chapter.
+2. Choose **Story illustration** and click **Generate visual brief**. A brief can recommend keeping the idea in text, ending the workflow there.
+3. Click **Render image**. Codex produces a drawing plan in a separate request. The app checks the plan, VectorCraft renders the PNG, and the browser shows it inline. [Architecture guide on GitHub](https://github.com/ChaitanyaPandit1998/gpt-under-the-hood/blob/main/code-understanding-tool/docs/architecture.md)
 
 ![Two generation workflows showing how explanation review can trigger one repair and a final review, and how design choices become a validated VectorCraft drawing and inline PNG](riemann-hypothesis-assets/understand-generation-workflows.png)
 
