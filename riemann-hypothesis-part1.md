@@ -108,7 +108,7 @@ If the material is in a screenshot, you can upload it and correct the extracted 
 
 Understand runs as a React app in the browser and talks to a Vite API on the same machine. When I clicked **Help me understand**, the browser sent the five-line passage, my audience level, and my chosen depth to that API. While the API was working, the browser polled it for progress. The original request returned the completed explanation. Explicitly saved studies stay in the browser’s IndexedDB.
 
-![System overview showing the React workspace and browser storage, the local Vite API and command-line tools, and outbound calls to the model service, GitHub, and Cloudflare](riemann-hypothesis-assets/understand-architecture.svg)
+![System overview showing the React workspace and browser storage, the local Vite API and command-line tools, and outbound calls to the model service, GitHub, and Cloudflare](riemann-hypothesis-assets/understand-architecture.png)
 
 *The overview shows where each step runs. The numbered path follows an explanation request. The branches show browser storage, on-demand exports, and calls to external services.*
 
@@ -116,7 +116,7 @@ The API loads instructions for the explanation task and passes them with the sou
 
 **Story** requests an analogy for the selected chapter. Illustrating it is a separate workflow. For Mira’s scene, I chose **Story illustration**, then clicked **Generate visual brief** and **Render image**. Codex produced the brief and drawing plan in separate requests. The app checked the plan, then VectorCraft rendered the PNG and the browser showed it inline. A brief can also recommend keeping the idea in text, in which case the workflow stops before drawing. [Architecture guide on GitHub](https://github.com/ChaitanyaPandit1998/gpt-under-the-hood/blob/main/code-understanding-tool/docs/architecture.md)
 
-![Two generation workflows showing how explanation review can trigger one repair and a final review, and how design choices become a validated VectorCraft drawing and inline PNG](riemann-hypothesis-assets/understand-generation-workflows.svg)
+![Two generation workflows showing how explanation review can trigger one repair and a final review, and how design choices become a validated VectorCraft drawing and inline PNG](riemann-hypothesis-assets/understand-generation-workflows.png)
 
 *The workflow diagram shows where the optional repair happens and how a visual goes from design choices to an inline PNG.*
 
