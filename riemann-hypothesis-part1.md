@@ -40,7 +40,7 @@ You can picture a complex number $s$ as a point on a map. Its **real part**, wri
 
 ![A shaded strip between real parts zero and one, with a vertical line halfway across](riemann-hypothesis-assets/vectorcraft-critical-strip.png)
 
-*The shaded strip shows the known region. The dark vertical line at $\operatorname{Re}(s)=1/2$ shows where the hypothesis places every nontrivial zero.*
+> **Worth remembering.** The critical strip tells us where to look. The Riemann Hypothesis says every nontrivial zero lies on one line inside it.
 
 The location matters because it controls how closely estimates of the number of primes match the actual count. [Clay Mathematics Institute overview](https://www.claymath.org/millennium/Riemann-Hypothesis/)
 
@@ -82,7 +82,7 @@ One draft diagram labelled the critical strip but drew only the critical line. I
 
 In an earlier Story Mode run, the app described a half-turn around the wrong centre. The story had passed the app’s review. Comparing the description with the transformation exposed the error.
 
-That’s part of what I wanted from Understand. For the story, I could compare the description with the math it represented. For the diagram, I could check whether the picture showed both things the explanation described. In each case, I had something specific to verify.
+> **Worth remembering.** When a claim matters, open its citation and check whether those lines support the exact claim. For a diagram, check whether the picture shows everything its labels promise.
 
 ## 6. What else can you use Understand for?
 
