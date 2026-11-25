@@ -1,4 +1,4 @@
-# Reading the Riemann Hypothesis with a Tool We Built
+# I Built an AI Tool for Reading Code. Then I Gave It the Riemann Hypothesis.
 
 **Pull quotes**
 
