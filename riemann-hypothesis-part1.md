@@ -155,9 +155,14 @@ Understand runs as a React app in the browser and talks to a Vite API on the sam
 
 ## 8. Understanding what we build
 
-I started with a headline about a proof. By the end, I could explain the claim in my own words. One nontrivial zero off the critical line would refute it. Finding another zero on the line would still fall short of showing that **every** nontrivial zero lies there.
+I started with a headline about a proof. By the end, I could say what a proof would have to establish. Try the same check with Mira’s map. Imagine she finds a new nontrivial zero. **What would you conclude if she put the pin at ¼? What if she put it at ½?**
 
-That’s the habit I want to bring back to building with AI. When a generated function works, I can pick one branch and ask what would happen if the input changed. If I can predict the result and point to the lines that explain it, I’m in a better position to make the next change.
+- **At ¼**, the pin is inside the strip and off the centre line. One such zero would refute the hypothesis.
+- **At ½**, the pin is right where the hypothesis says it should be. Finding that zero would still fall short of showing that **every** nontrivial zero lies there.
+
+I can check both answers against lines 3–5 of the passage I gave Understand. The illustration helped me picture the two cases, and the citation let me check exactly what the hypothesis claims.
+
+I want to bring the same habit back to the retry code from the opening. Once the request succeeds in a test, I can ask what happens if the last attempt fails. Does the caller get an error or a fallback value? Before I ask AI to change the function, I want to predict the result and point to the branch that decides it.
 
 ## 9. What’s next in the series
 
