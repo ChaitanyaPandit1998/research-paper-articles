@@ -32,7 +32,7 @@ The Riemann Hypothesis gives us a timely way to try that. After seeing the headl
 
 ![Understand showing the Key ideas chapter and highlighting line 5 in the original source](riemann-hypothesis-assets/source-citation.png)
 
-*In Understand, clicking a citation opens the original passage beside the explanation and highlights the supporting line.*
+*I pasted a five-line passage into Understand, opened the Key ideas chapter, and clicked the citation for line 5. The panel on the right shows the original passage and highlights the line that says every nontrivial zero lies on the critical line.*
 
 ## 2. Why I chose the Riemann Hypothesis
 
@@ -42,9 +42,12 @@ I could follow the news about the proof and still struggle to explain the statem
 
 ## 3. The critical strip and the critical line
 
-For the function f(x) = x − 2, the number 2 is a **zero** because putting 2 into the function gives 0. In the same way, a zero of the Riemann zeta function is an input s for which ζ(s) = 0. The zeros at −2, −4, −6, … are called *trivial*. The hypothesis concerns the remaining zeros, called *nontrivial*. [Official problem description](https://www.claymath.org/wp-content/uploads/2022/05/riemann.pdf)
+A **zero** is an input that gives you 0. Say your rule is “subtract 2.” Put in 2 and you get 0, so 2 is a zero of that rule. The Riemann zeta function has zeros too. The ones at −2, −4, −6, and so on are called *trivial*. All the others are called *nontrivial*, and those are the zeros the hypothesis is about. [Official problem description](https://www.claymath.org/wp-content/uploads/2022/05/riemann.pdf)
 
-You can picture a complex number s as a point on a map. Its **real part**, written Re(s), tells you how far left or right it sits. The **critical strip** is the region between horizontal coordinates 0 and 1, where all nontrivial zeros are known to lie. The **critical line** runs vertically through ½. The hypothesis says that every nontrivial zero lies on that line. [NIST Digital Library of Mathematical Functions](https://dlmf.nist.gov/25.10#i)
+Picture each complex number as a point on a map. Its left-to-right position is called its **real part**. Here’s how to read the diagram.
+
+- **The shaded strip.** All nontrivial zeros are known to sit somewhere between 0 and 1 on the horizontal axis.
+- **The centre line.** It runs vertically through ½. The hypothesis says every one of those zeros lies on this line. [NIST Digital Library of Mathematical Functions](https://dlmf.nist.gov/25.10#i)
 
 ![A shaded strip between real parts zero and one, with a vertical line halfway across](riemann-hypothesis-assets/vectorcraft-critical-strip.png)
 
