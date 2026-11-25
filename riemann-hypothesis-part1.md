@@ -22,11 +22,11 @@
 
 ## 1. Why we built Understand
 
-Building with AI has changed how I write software. Once a feature works, it’s tempting to move straight to the next one. I’ve caught myself doing that before I could explain why the new code takes a particular path or what happens when a request fails.
+AI helps me get to working code faster. I’ve caught myself moving on to the next feature before I could explain the one I’d just built. That catches up with me when I need to change it. Say I ask AI to add retries to a request. When the last attempt fails, what does the caller actually get back? Which line decides?
 
-Take the refresh feature in Understand. Refreshing the tab brings back the completed explanation and reopens the chapter you were reading without calling the model again. But what if the temporary copy contains a citation to a line that doesn’t exist? The app now checks the copy before restoring it. If the check fails, it discards the copy and keeps the editor usable. That’s the kind of question I want to be able to answer about a feature I’ve built, even after I’ve seen it work.
+We built **Understand** to help me answer questions like that from the source. I can give it a piece of code, a passage from the docs, or a public pull request. It breaks the material into chapters, and I can click a citation to read the lines behind a claim. If a step still feels unclear, I can ask about that specific part and keep reading.
 
-We built **Understand** to make that kind of reading easier. You can give it a piece of code, a passage from the docs, or a public pull request. As you read the explanation, you can open the source lines behind a claim and ask a follow-up about the part that still feels unclear. A good outcome is when you can close the explanation and walk someone else through the idea in your own words.
+A good outcome is when you can close the explanation and walk someone else through the idea in your own words. With code, I want to go one step further. If I change an input or a condition, I want to be able to predict what happens and point to the lines that explain why.
 
 The Riemann Hypothesis gives us a timely way to try that. After seeing the headlines about a proof, I wanted to start with a more basic question: what does the hypothesis actually say?
 
