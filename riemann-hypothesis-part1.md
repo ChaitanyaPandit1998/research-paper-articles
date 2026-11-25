@@ -42,13 +42,13 @@ I could follow the news about the proof and still struggle to explain the statem
 
 ## 3. The critical strip and the critical line
 
-For the function $f(x)=x-2$, the number $2$ is a **zero** because putting $2$ into the function gives $0$. In the same way, a zero of the Riemann zeta function is an input $s$ for which $\zeta(s)=0$. The zeros at $-2,-4,-6,\ldots$ are called *trivial*. The hypothesis concerns the remaining zeros, called *nontrivial*. [Official problem description](https://www.claymath.org/wp-content/uploads/2022/05/riemann.pdf)
+For the function f(x) = x − 2, the number 2 is a **zero** because putting 2 into the function gives 0. In the same way, a zero of the Riemann zeta function is an input s for which ζ(s) = 0. The zeros at −2, −4, −6, … are called *trivial*. The hypothesis concerns the remaining zeros, called *nontrivial*. [Official problem description](https://www.claymath.org/wp-content/uploads/2022/05/riemann.pdf)
 
-You can picture a complex number $s$ as a point on a map. Its **real part**, written $\operatorname{Re}(s)$, tells you how far left or right it sits. The **critical strip** is the region between horizontal coordinates $0$ and $1$, where all nontrivial zeros are known to lie. The **critical line** runs vertically through $1/2$. The hypothesis says that every nontrivial zero lies on that line. [NIST Digital Library of Mathematical Functions](https://dlmf.nist.gov/25.10#i)
+You can picture a complex number s as a point on a map. Its **real part**, written Re(s), tells you how far left or right it sits. The **critical strip** is the region between horizontal coordinates 0 and 1, where all nontrivial zeros are known to lie. The **critical line** runs vertically through ½. The hypothesis says that every nontrivial zero lies on that line. [NIST Digital Library of Mathematical Functions](https://dlmf.nist.gov/25.10#i)
 
 ![A shaded strip between real parts zero and one, with a vertical line halfway across](riemann-hypothesis-assets/vectorcraft-critical-strip.png)
 
-*The shaded strip shows the known region. The dark vertical line at $\operatorname{Re}(s)=1/2$ shows where the hypothesis places every nontrivial zero.*
+*The shaded strip shows the known region. The dark vertical line at Re(s) = ½ shows where the hypothesis places every nontrivial zero.*
 
 The location matters because it controls how closely estimates of the number of primes match the actual count. [Clay Mathematics Institute overview](https://www.claymath.org/millennium/Riemann-Hypothesis/)
 
@@ -72,9 +72,9 @@ In the **Key ideas** chapter, I clicked a citation beside the explanation of tri
 
 Then I asked a follow-up. **What would a nontrivial zero inside the strip but off the line mean for the hypothesis?** The app pointed to lines 3–5. Such a zero would fit the known bounds of the strip. It would also be enough to disprove the hypothesis, because the hypothesis puts every nontrivial zero on the line.
 
-I switched the same chapter from **Direct** to **Story**. In *The Zero Marks on Mira’s Map*, Mira puts a pin wherever an imaginary reader displays zero. The **What this represents** panel maps each part of the scene to the math. The spot on the map is the input $s$, the reading is $\zeta(s)$, and the pin marks a spot where that reading is zero.
+I switched the same chapter from **Direct** to **Story**. In *The Zero Marks on Mira’s Map*, Mira puts a pin wherever an imaginary reader displays zero. The **What this represents** panel maps each part of the scene to the math. The spot on the map is the input s, the reading is ζ(s), and the pin marks a spot where that reading is zero.
 
-Later, Mira points to a hypothetical spot at horizontal position $3/4$. I used **Illustrate this scene** to render that moment with VectorCraft. I could now say why it mattered in my own words. **A zero there would be inside the strip, and it would be off the line.**
+Later, Mira points to a hypothetical spot at horizontal position ¾. I used **Illustrate this scene** to render that moment with VectorCraft. I could now say why it mattered in my own words. **A zero there would be inside the strip, and it would be off the line.**
 
 ![Story Mode showing Mira’s first scene and the What this represents panel](riemann-hypothesis-assets/story-mode.png)
 
@@ -82,7 +82,7 @@ Later, Mira points to a hypothetical spot at horizontal position $3/4$. I used *
 
 ![Understand showing Mira’s story, the What this represents panel with a citation to lines 3–5, and the VectorCraft illustration directly below](riemann-hypothesis-assets/story-mode-inline-illustration.png)
 
-*The illustration appears directly under Mira’s scene in Story Mode. The question mark at $3/4$ shows where a hypothetical counterexample could lie.* [View the full-size VectorCraft illustration](riemann-hypothesis-assets/vectorcraft-miras-map.png)
+*The illustration appears directly under Mira’s scene in Story Mode. The question mark at ¾ shows where a hypothetical counterexample could lie.* [View the full-size VectorCraft illustration](riemann-hypothesis-assets/vectorcraft-miras-map.png)
 
 ## 5. Where the explanation needed checking
 
