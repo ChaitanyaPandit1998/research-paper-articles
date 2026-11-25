@@ -155,7 +155,7 @@ Understand runs as a React app in the browser and talks to a Vite API on the sam
 
 ## 8. Understanding what we build
 
-I started with a headline about a proof. By the end, I could explain what the Riemann Hypothesis says and why one nontrivial zero off the critical line would be enough to disprove it. The moment I knew I understood it was when I could answer that follow-up in my own words.
+I started with a headline about a proof. By the end, I could explain the claim in my own words. One nontrivial zero off the critical line would refute it. Finding another zero on the line would still fall short of showing that **every** nontrivial zero lies there.
 
 That’s the habit I want to bring back to building with AI. When a generated function works, I can pick one branch and ask what would happen if the input changed. If I can predict the result and point to the lines that explain it, I’m in a better position to make the next change.
 
