@@ -52,13 +52,15 @@ You can picture a complex number s as a point on a map. Its **real part**, writt
 
 The location matters because it controls how closely estimates of the number of primes match the actual count. [Clay Mathematics Institute overview](https://www.claymath.org/millennium/Riemann-Hypothesis/)
 
-This gives us a question to try in Understand. **What would it mean to find a nontrivial zero inside the strip, but off the line?**
-
 ## 4. A worked example in Understand
 
-To follow along, clone the repository and open `code-understanding-tool`. Run `npm install` to install the dependencies, then `npm run dev` to start the app. Generation uses your signed-in Codex CLI and may send the submitted material to its configured service. [Understand source code on GitHub](https://github.com/ChaitanyaPandit1998/gpt-under-the-hood/tree/main/code-understanding-tool)
+On Mira’s map, there’s a question mark at ¾. It sits inside the shaded strip, to the right of the centre line at ½. **Imagine the zeta function returned zero at that point. Which statement would still hold, and which would fail?** Take a moment to work it out before reading on.
 
-I opened **Documentation**, pasted the five-line passage below, chose **Beginner** and **Step-by-step**, and clicked **Help me understand**.
+When I asked Understand what a nontrivial zero inside the strip but off the line would mean, this was the first sentence of its reply.
+
+> A single nontrivial zero off the critical line would disprove the Riemann Hypothesis.
+
+I had opened **Documentation**, pasted the five lines below, chosen **Beginner** and **Step-by-step**, and clicked **Help me understand**.
 
 ```text
 A zero of the Riemann zeta function is a complex number s for which ζ(s) = 0.
@@ -68,21 +70,21 @@ The critical line is the vertical line Re(s) = 1/2, halfway across the strip.
 The Riemann Hypothesis states that every nontrivial zero lies on the critical line.
 ```
 
-In the **Key ideas** chapter, I clicked a citation beside the explanation of trivial and nontrivial zeros. Understand opened the original passage alongside the explanation and highlighted line 5. I could see exactly where the source said **every** nontrivial zero lies on the line.
-
-Then I asked a follow-up. **What would a nontrivial zero inside the strip but off the line mean for the hypothesis?** The app pointed to lines 3–5. Such a zero would fit the known bounds of the strip. It would also be enough to disprove the hypothesis, because the hypothesis puts every nontrivial zero on the line.
+The follow-up answer pointed me to lines 3–5. Line 3 says the nontrivial zeros are between 0 and 1, so a point at ¾ fits that rule. Line 4 puts the critical line at ½. Line 5 says **every** nontrivial zero lies on that line. That word does the work. One zero at ¾ would be enough to refute the claim. I could also open line 5 directly from the citation in the **Key ideas** chapter, as shown at the start of the article.
 
 I switched the same chapter from **Direct** to **Story**. In *The Zero Marks on Mira’s Map*, Mira puts a pin wherever an imaginary reader displays zero. The **What this represents** panel maps each part of the scene to the math. The spot on the map is the input s, the reading is ζ(s), and the pin marks a spot where that reading is zero.
-
-Later, Mira points to a hypothetical spot at horizontal position ¾. I used **Illustrate this scene** to render that moment with VectorCraft. I could now say why it mattered in my own words. **A zero there would be inside the strip, and it would be off the line.**
 
 ![Story Mode showing Mira’s first scene and the What this represents panel](riemann-hypothesis-assets/story-mode.png)
 
 *In the app, Story Mode puts Mira’s analogy beside its mathematical meaning and links back to the source.*
 
+The last scene is where Mira points to the spot at ¾. I used **Illustrate this scene** to render that moment with VectorCraft. I could read the story, check its explanation against lines 3–5, and see where the point would sit on the map.
+
 ![Understand showing Mira’s story, the What this represents panel with a citation to lines 3–5, and the VectorCraft illustration directly below](riemann-hypothesis-assets/story-mode-inline-illustration.png)
 
 *The illustration appears directly under Mira’s scene in Story Mode. The question mark at ¾ shows where a hypothetical counterexample could lie.* [View the full-size VectorCraft illustration](riemann-hypothesis-assets/vectorcraft-miras-map.png)
+
+To try it yourself, clone the repository and open `code-understanding-tool`. Run `npm install`, then `npm run dev`. Generation uses your signed-in Codex CLI and may send the submitted material to its configured service. [Understand source code on GitHub](https://github.com/ChaitanyaPandit1998/gpt-under-the-hood/tree/main/code-understanding-tool)
 
 ## 5. Where the explanation needed checking
 
