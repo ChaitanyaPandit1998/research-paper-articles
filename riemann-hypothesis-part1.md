@@ -79,6 +79,10 @@ The critical line is the vertical line Re(s) = 1/2, halfway across the strip.
 The Riemann Hypothesis states that every nontrivial zero lies on the critical line.
 ```
 
+![Understand’s Documentation tab with the five-line passage entered, Beginner and Step-by-step selected, and the Help me understand button ready](riemann-hypothesis-assets/documentation-setup.png)
+
+*The setup just before I clicked Help me understand. The passage is in the Documentation tab, with the audience set to Beginner and the depth set to Step-by-step.*
+
 The follow-up answer pointed me to three lines.
 
 - **Line 3** puts nontrivial zeros inside the strip, between 0 and 1. A zero at ¾ would fit that rule.
